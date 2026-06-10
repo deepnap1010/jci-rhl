@@ -271,6 +271,13 @@ function MachineCard({
   const liveLiquor = dataNum(s?.data, ['liquorRatio']);
   const liveBathTemp = dataNum(s?.data, ['bathTemp', 'liquorTemp', 'actualTemp', 'temperature', 'temp']);
   const liveWaterPump = dataNum(s?.data, ['waterFlow', 'flow', 'water', 'fillLevelLitre']);
+  const liveTurns = dataNum(s?.data, ['turns']);
+  const liveDyeDosed = dataNum(s?.data, ['dyeDosed', 'dyeDosing', 'dosed']);
+  // batch dyeing machines (MAXI / cold-dyeing) report live readings rather than a loaded-fabric
+  // setup — show those instead of the job-config tiles (Loaded Meter / GLM / Loaded Time).
+  // Keyed off batch-specific fields so soft-flow machines (which only send actualTemp etc.)
+  // still use the loaded-fabric card.
+  const hasLiveDyeing = liveTurns != null || liveDyeDosed != null || (dProd != null && dProd > 0);
 
   return (
     <div className="card" style={{ padding: 16, animation: 'fadeUp .4s ease' }}>
@@ -347,16 +354,29 @@ function MachineCard({
               {job?.processType && <span style={{ background: '#fdecd8', color: '#b06f00', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>{job.processType}</span>}
             </div>
           )}
-          <div className="grid-two" style={{ gap: 8, marginTop: 12 }}>
-            <Metric label="Loaded Meter" value={fmtK(target)} unit="mtr" />
-            <Metric label="Stage" value={liveStage || job?.dyeStage || cap(m.status)} />
-            <Metric label="GLM (Weight)" value={fmtK(job?.glm ?? 0)} unit="kg" />
-            <Metric label="Liquor Ratio" value={liveLiquor && liveLiquor > 0 ? `1:${liveLiquor}` : (job?.liquorRatio || '—')} />
-            <Metric label="Loaded Time" value={job?.loadedAt ? fmtLoaded(job.loadedAt) : '—'} tone={job?.loadedAt ? 'cool' : 'plain'} />
-            <Metric label="Duration" value={job?.loadedAt ? fmtSince(job.loadedAt) : '—'} />
-            <ReMetric label="Water (Pump)" v={fresh ? liveWaterPump : null} unit="L" tone="cool" />
-            <ReMetric label="Temperature" v={fresh ? liveBathTemp : null} unit="°c" tone="warm" />
-          </div>
+          {hasLiveDyeing ? (
+            // batch dyeing machine reporting live readings (MAXI / cold-dyeing)
+            <div className="grid-two" style={{ gap: 8, marginTop: 12 }}>
+              <ReMetric label="Production" v={dProd} unit="mtr" k />
+              <ReMetric label="Bath Temp" v={liveBathTemp} unit="°c" tone="warm" />
+              <Metric label="Liquor Ratio" value={liveLiquor && liveLiquor > 0 ? `1:${liveLiquor}` : (job?.liquorRatio || '—')} />
+              <ReMetric label="Turns" v={liveTurns} />
+              <ReMetric label="Dye Dosed" v={liveDyeDosed} unit="L" />
+              <ReMetric label="Speed" v={dSpeed} unit="m/min" tone="cool" />
+            </div>
+          ) : (
+            // soft-flow / loaded-fabric setup (batch config from the job)
+            <div className="grid-two" style={{ gap: 8, marginTop: 12 }}>
+              <Metric label="Loaded Meter" value={fmtK(target)} unit="mtr" />
+              <Metric label="Stage" value={liveStage || job?.dyeStage || cap(m.status)} />
+              <Metric label="GLM (Weight)" value={fmtK(job?.glm ?? 0)} unit="kg" />
+              <Metric label="Liquor Ratio" value={liveLiquor && liveLiquor > 0 ? `1:${liveLiquor}` : (job?.liquorRatio || '—')} />
+              <Metric label="Loaded Time" value={job?.loadedAt ? fmtLoaded(job.loadedAt) : '—'} tone={job?.loadedAt ? 'cool' : 'plain'} />
+              <Metric label="Duration" value={job?.loadedAt ? fmtSince(job.loadedAt) : '—'} />
+              <ReMetric label="Water (Pump)" v={fresh ? liveWaterPump : null} unit="L" tone="cool" />
+              <ReMetric label="Temperature" v={fresh ? liveBathTemp : null} unit="°c" tone="warm" />
+            </div>
+          )}
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'grid', gap: 4 }}>
             <div>Operator: <b style={strong}>{job?.operatorName || '—'}</b></div>
             <div>Supervisor: <b style={strong}>{job?.supervisorName || '—'}</b></div>
