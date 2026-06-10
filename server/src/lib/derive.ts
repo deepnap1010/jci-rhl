@@ -56,6 +56,21 @@ function unwrap16(v: number): number {
   return Math.max(0, v);
 }
 
+// Counter fields shown in the raw PLC blob (Details / History snapshot) can also be
+// wrapped. Return a copy with those keys unwrapped so the modal shows the real value.
+const COUNTER_KEYS = /^(production|fabriclength|counter)$/i;
+function sanitizeCounters(data: Data): Data {
+  let changed = false;
+  const out: Data = { ...data };
+  for (const k of Object.keys(out)) {
+    if (!COUNTER_KEYS.test(k)) continue;
+    const v = out[k];
+    const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)) ? Number(v) : null);
+    if (n !== null && n < 0 && n >= -32768) { out[k] = n + 65536; changed = true; }
+  }
+  return changed ? out : data;
+}
+
 export function departmentFor(data: Data, type?: string): Department {
   const fromData = typeof data.dept === 'string' ? data.dept.toLowerCase() : '';
   const fromType = (type || '').toLowerCase();
@@ -169,7 +184,7 @@ export function deriveView(machine: MachineDoc, latest: TelemetryDoc | null, poi
           stoppedSec,
           runningSec,
           downtimeSec,
-          data,
+          data: sanitizeCounters(data),
           updatedAt: new Date(latest.serverTs).toISOString(),
         }
       : null,

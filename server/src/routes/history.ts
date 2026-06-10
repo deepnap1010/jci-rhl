@@ -141,7 +141,7 @@ router.get('/api/history', async (req, res) => {
         temperature: s.temperature,
         waterFlow: s.waterFlow,
         efficiency: s.efficiency,
-        ...(withData ? { data: d.data } : {}),
+        ...(withData ? { data: s.data } : {}), // s.data is counter-sanitized (unwrapped) by deriveView
       };
     });
 
