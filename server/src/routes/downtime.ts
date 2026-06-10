@@ -5,14 +5,20 @@
 //  idleSeconds, stoppedSeconds, idleCount, stoppedCount).
 // ============================================================
 import { Router } from 'express';
-import { getScopedViews } from '../lib/derive';
+import { getScopedViews, latestByMachineInWindow } from '../lib/derive';
 import { TelemetryModel } from '../models/Telemetry';
 
 const router = Router();
 
 router.get('/api/downtime', async (req, res) => {
   try {
-    let views = await getScopedViews(req.user!);
+    // optional ?from=&to= → downtime as of a date window (each machine's latest reading in it)
+    const f = req.query.from ? new Date(String(req.query.from)) : null;
+    const t = req.query.to ? new Date(String(req.query.to)) : null;
+    const range = f && t && !isNaN(f.getTime()) && !isNaN(t.getTime()) ? { from: f, to: t } : null;
+    const latest = range ? await latestByMachineInWindow(range.from, range.to) : undefined;
+
+    let views = await getScopedViews(req.user!, latest);
     if (req.query.dept) views = views.filter((v) => v.department === req.query.dept);
     if (req.query.status) views = views.filter((v) => v.status === req.query.status);
 

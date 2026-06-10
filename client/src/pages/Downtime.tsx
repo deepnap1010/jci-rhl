@@ -7,28 +7,88 @@
 import { useState } from 'react';
 import { useDowntimeData } from '../hooks/useData';
 import type { DowntimeCard as Card, DowntimeEventRow } from '../hooks/useData';
-import { KpiCard, StatusPill, fmtDuration } from '../components/ui';
+import { KpiCard, StatusPill, fmtDuration, inputStyle } from '../components/ui';
 import { api } from '../api/client';
+import { DEPARTMENTS } from '@shared/types';
 
 export default function Downtime() {
-  const { data } = useDowntimeData();
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [dept, setDept] = useState('');
+  const [status, setStatus] = useState('');
+
+  // build the query string from the filters
+  const qs = (() => {
+    const p = new URLSearchParams();
+    const from = dateFrom || dateTo;
+    const to = dateTo || dateFrom;
+    if (from && to) {
+      p.set('from', new Date(`${from}T00:00`).toISOString());
+      p.set('to', new Date(`${to}T23:59`).toISOString());
+    }
+    if (dept) p.set('dept', dept);
+    if (status) p.set('status', status);
+    const s = p.toString();
+    return s ? `?${s}` : '';
+  })();
+
+  const { data } = useDowntimeData(qs);
   const { cards, kpis } = data;
+  const filtered = !!(dateFrom || dateTo || dept || status);
+  const rangeNote = dateFrom || dateTo ? 'in range' : '24h';
 
   return (
     <div style={{ padding: '0 28px 40px' }}>
       <div className="grid-stats-4" style={{ gap: 14 }}>
-        <KpiCard label="Total Downtime" value={fmtDuration(kpis.totalDowntimeSec)} sub="Idle + stopped (24h)" accent="var(--accent-red)" />
+        <KpiCard label="Total Downtime" value={fmtDuration(kpis.totalDowntimeSec)} sub={`Idle + stopped (${rangeNote})`} accent="var(--accent-red)" />
         <KpiCard label="Stopped" value={kpis.stopped} sub="Currently stopped" accent="var(--accent-red)" />
         <KpiCard label="Idle" value={kpis.idle} sub="Currently idle" accent="var(--accent-amber)" />
         <KpiCard label="Running" value={kpis.running} sub={`of ${cards.length} machines`} accent="var(--accent-green)" />
       </div>
 
+      {/* filters */}
+      <div className="card" style={{ padding: 16, marginTop: 18, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <Lbl label="Date From"><input type="date" style={ctrl} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /></Lbl>
+        <Lbl label="Date To"><input type="date" style={ctrl} value={dateTo} onChange={(e) => setDateTo(e.target.value)} /></Lbl>
+        <Lbl label="Department">
+          <select style={ctrl} value={dept} onChange={(e) => setDept(e.target.value)}>
+            <option value="">All Departments</option>
+            {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </Lbl>
+        <Lbl label="Status">
+          <select style={ctrl} value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All Statuses</option>
+            <option value="running">Running</option>
+            <option value="idle">Idle</option>
+            <option value="stopped">Stopped</option>
+            <option value="disconnected">Disconnected</option>
+          </select>
+        </Lbl>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 9 }}>Showing {cards.length} machine{cards.length === 1 ? '' : 's'}</span>
+        {filtered && (
+          <button onClick={() => { setDateFrom(''); setDateTo(''); setDept(''); setStatus(''); }}
+            style={{ marginLeft: 'auto', marginBottom: 4, border: 'none', background: 'none', color: 'var(--brand)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            Clear filters
+          </button>
+        )}
+      </div>
+
       <div className="auto-cards" style={{ gap: 16, marginTop: 18 }}>
-        {cards.map((m) => <DowntimeCardView key={m._id} m={m} />)}
+        {cards.length === 0 ? (
+          <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No machines match these filters.</div>
+        ) : (
+          cards.map((m) => <DowntimeCardView key={m._id} m={m} />)
+        )}
       </div>
     </div>
   );
 }
+
+function Lbl({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}><span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>{label}</span>{children}</label>;
+}
+const ctrl: React.CSSProperties = { ...inputStyle };
 
 function DowntimeCardView({ m }: { m: Card & { idleCount?: number; stoppedCount?: number } }) {
   const [open, setOpen] = useState(false);

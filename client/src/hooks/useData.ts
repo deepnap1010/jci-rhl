@@ -513,9 +513,9 @@ export const useOrg = () =>
 
 export const useShifts = () =>
   useEndpoint<{ shifts: ShiftCard[]; assignments: ShiftAssignment[] }>('/api/shifts', { shifts: [], assignments: [] });
-export const useDowntimeData = () =>
+export const useDowntimeData = (qs = '') =>
   useEndpoint<{ cards: DowntimeCard[]; kpis: { totalDowntimeSec: number; stopped: number; idle: number; running: number } }>(
-    '/api/downtime',
+    '/api/downtime' + qs,
     { cards: [], kpis: { totalDowntimeSec: 0, stopped: 0, idle: 0, running: 0 } }
   );
 export const useWater = (from?: string, to?: string) =>
