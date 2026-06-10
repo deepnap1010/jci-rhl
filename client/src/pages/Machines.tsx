@@ -255,6 +255,23 @@ function MachineCard({
   const downtimeMin = Math.round((s?.downtimeSec ?? 0) / 60);
   const strong: React.CSSProperties = { color: 'var(--text)' };
 
+  // adaptive production metrics — broad aliases so each machine's real fields resolve.
+  // If a machine reports none of these (e.g. WASH-RANGE sends only trim %), fall back to
+  // showing its own meaningful parameters instead of a grid of zeros.
+  const dProd = dataNum(s?.data, ['production', 'fabricLength', 'length', 'length_Production', 'counter']);
+  const dSpeed = dataNum(s?.data, ['speed', 'machineSpeed', 'fabricSpeed', 'reelSpeed']);
+  const dTemp = dataNum(s?.data, ['temperature', 'temp', 'bathTemp', 'actualTemp', 'chamberTemperature', 'steamerTempActual']);
+  const dWater = dataNum(s?.data, ['waterLPH', 'waterFlow', 'water', 'mainWater', 'mainWaterTotal', 'flow', 'steamFlowTotal', 'steamFlow']);
+  const fitsProduction = [dProd, dSpeed, dTemp, dWater].filter((x) => x != null && x !== 0).length >= 2;
+  const dynTiles = fitsProduction ? [] : dynamicMetricTiles(s?.data);
+
+  // live dyeing readings (MAXI / cold-dyeing / soft-flow report these) — prefer over the
+  // job's configured values so the batch card reflects the machine, not just the setup
+  const liveStage = typeof s?.data?.stage === 'string' ? (s!.data!.stage as string) : '';
+  const liveLiquor = dataNum(s?.data, ['liquorRatio']);
+  const liveBathTemp = dataNum(s?.data, ['bathTemp', 'liquorTemp', 'actualTemp', 'temperature', 'temp']);
+  const liveWaterPump = dataNum(s?.data, ['waterFlow', 'flow', 'water', 'fillLevelLitre']);
+
   return (
     <div className="card" style={{ padding: 16, animation: 'fadeUp .4s ease' }}>
       {/* header */}
@@ -332,13 +349,13 @@ function MachineCard({
           )}
           <div className="grid-two" style={{ gap: 8, marginTop: 12 }}>
             <Metric label="Loaded Meter" value={fmtK(target)} unit="mtr" />
-            <Metric label="Stage" value={job?.dyeStage || cap(m.status)} />
+            <Metric label="Stage" value={liveStage || job?.dyeStage || cap(m.status)} />
             <Metric label="GLM (Weight)" value={fmtK(job?.glm ?? 0)} unit="kg" />
-            <Metric label="Liquor Ratio" value={job?.liquorRatio || '—'} />
+            <Metric label="Liquor Ratio" value={liveLiquor && liveLiquor > 0 ? `1:${liveLiquor}` : (job?.liquorRatio || '—')} />
             <Metric label="Loaded Time" value={job?.loadedAt ? fmtLoaded(job.loadedAt) : '—'} tone={job?.loadedAt ? 'cool' : 'plain'} />
             <Metric label="Duration" value={job?.loadedAt ? fmtSince(job.loadedAt) : '—'} />
-            <Metric label="Water (Pump)" value={fresh && s ? (s.waterFlow ?? 0) : '—'} unit="L" tone="cool" />
-            <Metric label="Temperature" value={fresh && s ? (s.temperature ?? 0) : '—'} unit="°c" tone="warm" />
+            <ReMetric label="Water (Pump)" v={fresh ? liveWaterPump : null} unit="L" tone="cool" />
+            <ReMetric label="Temperature" v={fresh ? liveBathTemp : null} unit="°c" tone="warm" />
           </div>
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'grid', gap: 4 }}>
             <div>Operator: <b style={strong}>{job?.operatorName || '—'}</b></div>
@@ -346,19 +363,30 @@ function MachineCard({
           </div>
         </>
       ) : (
-        // ── CONTINUOUS machine: production layout ──
+        // ── CONTINUOUS machine: production layout (adaptive) ──
         <>
-          <div className="grid-two" style={{ gap: 8, marginTop: 14 }}>
-            <Metric label="Production" value={fmtK(production)} unit="mtr" />
-            <Metric label="Speed" value={s?.speed ?? 0} unit="m/min" />
-            <Metric label="Temperature" value={s?.temperature ?? 0} unit="°c" tone="warm" />
-            <Metric label="Efficiency" value={`${s?.efficiency ?? 0}%`} tone={(s?.efficiency ?? 0) < 1 ? 'warm' : 'plain'} />
-            <Metric label="Water Flow" value={s?.waterFlow ?? 0} unit="L/hr" tone="cool" />
-            <Metric label="Downtime" value={downtimeMin} unit="min" tone="warm" />
-          </div>
+          {fitsProduction ? (
+            <div className="grid-two" style={{ gap: 8, marginTop: 14 }}>
+              <ReMetric label="Production" v={dProd} unit="mtr" k />
+              <ReMetric label="Speed" v={dSpeed} unit="m/min" />
+              <ReMetric label="Temperature" v={dTemp} unit="°c" tone="warm" />
+              <Metric label="Efficiency" value={`${s?.efficiency ?? 0}%`} tone={(s?.efficiency ?? 0) < 1 ? 'warm' : 'plain'} />
+              <ReMetric label="Water Flow" v={dWater} unit="L/hr" tone="cool" k />
+              <Metric label="Downtime" value={downtimeMin} unit="min" tone="warm" />
+            </div>
+          ) : dynTiles.length > 0 ? (
+            <div className="grid-two" style={{ gap: 8, marginTop: 14 }}>
+              {dynTiles.map((t) => <Metric key={t.label} label={t.label} value={t.value} />)}
+            </div>
+          ) : (
+            <div className="grid-two" style={{ gap: 8, marginTop: 14 }}>
+              <Metric label="Efficiency" value={`${s?.efficiency ?? 0}%`} tone={(s?.efficiency ?? 0) < 1 ? 'warm' : 'plain'} />
+              <Metric label="Downtime" value={downtimeMin} unit="min" tone="warm" />
+            </div>
+          )}
 
-          {/* production → target: full bar once there's output; compact line while still at 0 */}
-          {target > 0 && production > 0 ? (
+          {/* production → target: only meaningful for machines that report production */}
+          {fitsProduction && target > 0 && production > 0 ? (
             <div style={{ marginTop: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
                 <span>Production: <b style={strong}>{fmtK(production)} mtr</b></span>
@@ -369,7 +397,7 @@ function MachineCard({
               </div>
               <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--accent-amber)', marginTop: 4 }}>{pct}%</div>
             </div>
-          ) : target > 0 ? (
+          ) : fitsProduction && target > 0 ? (
             <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)' }}>
               Target: <b style={strong}>{fmtK(target)} mtr</b> · <span style={{ color: 'var(--text-faint)' }}>no output yet</span>
             </div>
@@ -881,6 +909,31 @@ function dataNum(data: Record<string, unknown> | undefined | null, keys: string[
 function ReMetric({ label, v, unit, tone = 'plain', k = false }: { label: string; v: number | null; unit?: string; tone?: 'plain' | 'warm' | 'cool' | 'bad'; k?: boolean }) {
   const display = v == null ? '—' : k ? fmtK(v) : Number.isInteger(v) ? String(v) : v.toFixed(2);
   return <Metric label={label} value={display} unit={unit} tone={tone} />;
+}
+
+// "fabricSpeed" → "Fabric Speed", "dosing1PidPct" → "Dosing1 Pid %"
+function humanizeKey(k: string): string {
+  return k
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/\bPct\b/gi, '%')
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+// When a machine doesn't report the standard production metrics, surface its own most
+// meaningful numeric parameters instead of a grid of zeros. Skips setpoints/counters/flags.
+function dynamicMetricTiles(data?: Record<string, unknown> | null, limit = 6): { label: string; value: string }[] {
+  if (!data) return [];
+  const skip = /setpoint|sp$|count$|tol$|mapped|seconds$|^set|actual$|target$/i;
+  const out: { label: string; value: string }[] = [];
+  for (const key of Object.keys(data)) {
+    if (out.length >= limit) break;
+    const v = data[key];
+    if (typeof v !== 'number' || isNaN(v) || skip.test(key)) continue;
+    out.push({ label: humanizeKey(key), value: Number.isInteger(v) ? String(v) : v.toFixed(2) });
+  }
+  return out;
 }
 
 // "15 Apr 2026, 03:37 pm" — when fabric was loaded
