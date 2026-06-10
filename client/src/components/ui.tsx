@@ -5,14 +5,21 @@ import type { MachineStatus } from '@shared/types';
 
 // ---- colored-top KPI card (like the dashboard summary cards) ----
 export function KpiCard({
-  label, value, sub, accent,
-}: { label: string; value: React.ReactNode; sub?: string; accent: string }) {
+  label, value, sub, accent, onClick,
+}: { label: string; value: React.ReactNode; sub?: string; accent: string; onClick?: () => void }) {
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden', animation: 'fadeUp .4s ease' }}>
+    <div
+      className={`card${onClick ? ' hoverable' : ''}`}
+      onClick={onClick}
+      style={{ padding: 0, overflow: 'hidden', animation: 'fadeUp .4s ease', cursor: onClick ? 'pointer' : undefined }}
+    >
       <div style={{ height: 4, background: accent }} />
       <div style={{ padding: '16px 18px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--text-faint)' }}>
-          {label.toUpperCase()}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--text-faint)' }}>
+            {label.toUpperCase()}
+          </div>
+          {onClick && <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>↗</span>}
         </div>
         <div style={{ fontSize: 28, fontWeight: 800, color: accent, margin: '6px 0 2px' }}>{value}</div>
         {sub && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sub}</div>}

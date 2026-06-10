@@ -4,7 +4,7 @@
 //  notified and works it. Production Head → Production Manager →
 //  Supervisor → Operator.
 // ============================================================
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Send, Inbox, ListChecks } from 'lucide-react';
 import { useTasks, useJobs } from '../hooks/useData';
 import type { TaskRow } from '../hooks/useData';
@@ -32,6 +32,8 @@ interface Linkable {
   key: string; jobId: string | null; jobNumber: string; group: 'job' | 'mine';
   label: string; title: string; targetProduction: number; stage: string; machineCode: string | null;
 }
+// one row of a split — a person + their portion of the target
+interface Split { id: string; target: string; sel: CascadeSelection | null }
 
 export default function Tasks() {
   const { toMe, byMe, reports, assign, setStatus } = useTasks();
@@ -59,36 +61,58 @@ export default function Tasks() {
     }));
   const linkable = [...fromJobs, ...fromMine];
 
-  const [sel, setSel] = useState<CascadeSelection | null>(null);
   const [linked, setLinked] = useState<Linkable | null>(null);
-  const [form, setForm] = useState({ title: '', targetProduction: '', details: '' });
+  const [form, setForm] = useState({ title: '', details: '' });
+  const [splits, setSplits] = useState<Split[]>([{ id: 's1', target: '', sel: null }]);
+  const nextId = useRef(2);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  // how much of a job's target is already handed out (tasks I assigned for it)
+  const assignedForJob = (jobNumber: string) =>
+    byMe.filter((t) => t.jobNumber === jobNumber).reduce((s, t) => s + (t.targetProduction || 0), 0);
 
   function linkJob(key: string) {
     const item = linkable.find((x) => x.key === key) || null;
     setLinked(item);
-    if (item) setForm((p) => ({ ...p, title: item.title, targetProduction: String(item.targetProduction || '') }));
+    if (item) {
+      const remaining = Math.max(0, (item.targetProduction || 0) - assignedForJob(item.jobNumber));
+      setForm((p) => ({ ...p, title: item.title }));
+      setSplits([{ id: 's1', target: String(remaining || ''), sel: null }]);
+      nextId.current = 2;
+    }
   }
+  const addSplit = () => setSplits((s) => [...s, { id: `s${nextId.current++}`, target: '', sel: null }]);
+  const removeSplit = (id: string) => setSplits((s) => s.filter((x) => x.id !== id));
+  const setSplitSel = (id: string, sel: CascadeSelection | null) => setSplits((s) => s.map((x) => (x.id === id ? { ...x, sel } : x)));
+  const setSplitTarget = (id: string, target: string) => setSplits((s) => s.map((x) => (x.id === id ? { ...x, target } : x)));
+  const assignedTotal = splits.reduce((sum, s) => sum + (Number(s.target) || 0), 0);
+  const validCount = splits.filter((s) => s.sel?.userId).length;
+  const linkedAssigned = linked ? assignedForJob(linked.jobNumber) : 0;
+  const linkedRemaining = linked ? Math.max(0, linked.targetProduction - linkedAssigned) : 0;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!sel?.userId || !form.title.trim()) { toast.error('Pick a team member and enter a title'); return; }
+    const valid = splits.filter((s) => s.sel?.userId);
+    if (valid.length === 0 || !form.title.trim()) { toast.error('Pick at least one person and a title'); return; }
     setBusy(true);
     try {
-      await assign({
-        assignedToId: sel.userId,
-        title: form.title.trim(),
-        details: form.details.trim(),
-        targetProduction: Number(form.targetProduction) || 0,
-        machineId: sel.machineCode || linked?.machineCode || null,
-        department: linked?.stage,
-        jobId: linked?.jobId || undefined,
-        jobNumber: linked?.jobNumber || undefined,
-      });
-      toast.success('Task assigned — they have been notified');
-      setForm({ title: '', targetProduction: '', details: '' });
-      setSel(null);
+      for (const s of valid) {
+        await assign({
+          assignedToId: s.sel!.userId,
+          title: form.title.trim(),
+          details: form.details.trim(),
+          targetProduction: Number(s.target) || 0,
+          machineId: s.sel!.machineCode || linked?.machineCode || null,
+          department: linked?.stage,
+          jobId: linked?.jobId || undefined,
+          jobNumber: linked?.jobNumber || undefined,
+        });
+      }
+      toast.success(valid.length > 1 ? `Split into ${valid.length} tasks — everyone notified` : 'Task assigned — they have been notified');
+      setForm({ title: '', details: '' });
+      setSplits([{ id: 's1', target: '', sel: null }]);
+      nextId.current = 2;
       setLinked(null);
     } catch (err) {
       toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to assign');
@@ -130,22 +154,54 @@ export default function Tasks() {
               )}
             </div>
           )}
-          <div style={{ marginBottom: 14 }}>
-            <OrgCascadePicker onChange={setSel} />
-            {sel && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>Assigning to <b style={{ color: 'var(--text)' }}>{sel.name}</b>{sel.machineCode ? ` · ${sel.machineCode}` : ''}</div>}
-          </div>
-          <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 14, alignItems: 'end' }}>
-            <Field label="Task / job title">
-              <input style={full} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Run batch B-204 on line 3" />
-            </Field>
-            <Field label="Target (mtr)">
-              <input style={full} type="number" value={form.targetProduction} onChange={(e) => set('targetProduction', e.target.value)} placeholder="0" />
-            </Field>
-            <Field label="Notes (optional)">
-              <input style={full} value={form.details} onChange={(e) => set('details', e.target.value)} placeholder="Any instructions…" />
-            </Field>
-            <button type="submit" disabled={busy} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 18px', fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: busy ? 0.7 : 1 }}>
-              {busy ? 'Assigning…' : 'Assign task'}
+          <form onSubmit={submit}>
+            <div className="grid-two" style={{ gap: 14, marginBottom: 16 }}>
+              <Field label="Task / job title">
+                <input style={full} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Run batch B-204" />
+              </Field>
+              <Field label="Notes (optional)">
+                <input style={full} value={form.details} onChange={(e) => set('details', e.target.value)} placeholder="Any instructions…" />
+              </Field>
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
+              Assign to{splits.length > 1 ? ` — split across ${splits.length} people` : ''}
+            </div>
+            {splits.map((s, i) => (
+              <div key={s.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 14, marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-muted)' }}>Person {i + 1}{s.sel ? ` — ${s.sel.name}` : ''}</span>
+                  {splits.length > 1 && (
+                    <button type="button" onClick={() => removeSplit(s.id)} style={{ border: 'none', background: 'none', color: 'var(--stopped)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Remove</button>
+                  )}
+                </div>
+                <OrgCascadePicker onChange={(sel) => setSplitSel(s.id, sel)} />
+                <div style={{ marginTop: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Target for this person (mtr)</span>
+                  <input style={{ ...full, marginTop: 5 }} type="number" value={s.target} onChange={(e) => setSplitTarget(s.id, e.target.value)} placeholder="0" />
+                </div>
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+              <button type="button" onClick={addSplit} style={{ border: '1px dashed var(--border-strong)', background: 'var(--surface)', borderRadius: 10, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', color: 'var(--brand)' }}>
+                + Split — add another person
+              </button>
+              {linked && (
+                <span style={{ fontSize: 13, color: assignedTotal === linkedRemaining ? 'var(--running)' : assignedTotal > linkedRemaining ? 'var(--stopped)' : 'var(--text-muted)' }}>
+                  Distributing <b>{assignedTotal.toLocaleString()}</b> of <b>{linkedRemaining.toLocaleString()}</b> remaining
+                  {linkedAssigned > 0 && <span style={{ color: 'var(--text-faint)' }}> (target {linked.targetProduction.toLocaleString()}, {linkedAssigned.toLocaleString()} already assigned)</span>}
+                  {assignedTotal === linkedRemaining
+                    ? ' · ✓ balanced'
+                    : assignedTotal < linkedRemaining
+                      ? ` · ${(linkedRemaining - assignedTotal).toLocaleString()} left`
+                      : ` · ${(assignedTotal - linkedRemaining).toLocaleString()} over`}
+                </span>
+              )}
+            </div>
+
+            <button type="submit" disabled={busy} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 20px', fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: busy ? 0.7 : 1 }}>
+              {busy ? 'Assigning…' : validCount > 1 ? `Assign to ${validCount} people` : 'Assign task'}
             </button>
           </form>
         </div>
