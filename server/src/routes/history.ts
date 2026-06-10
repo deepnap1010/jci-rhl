@@ -84,9 +84,16 @@ router.get('/api/history', async (req, res) => {
     const withData = req.query.withData === '1' || req.query.withData === 'true';
     // opt-in: one reading per minute → a brief, wider-span overview instead of every few seconds
     const byMinute = req.query.bucket === 'minute' || req.query.bucket === '60';
+    // server-side pagination (the History table asks for one small page at a time)
+    const paginated = req.query.page !== undefined;
+    const pageSize = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const skip = (page - 1) * pageSize;
 
     type RawDoc = { _id: unknown; machineId: string; serverTs: Date; data: Record<string, unknown> };
     let docs: RawDoc[];
+    // total + per-status counts across the WHOLE filtered set (drives KPIs + page count)
+    let totalCount = 0, runningCount = 0, downtimeCount = 0;
     if (byMinute) {
       const agg = await TelemetryModel.aggregate([
         { $match: filter },
@@ -96,8 +103,22 @@ router.get('/api/history', async (req, res) => {
         { $limit: limit },
       ]);
       docs = agg.map((r) => r.doc as RawDoc);
-    } else {
+    } else if (paginated) {
       // project only the fields deriveView needs (unless the caller wants the raw payload)
+      const projection = withData ? undefined : HISTORY_PROJECTION;
+      // fetch just this page AND tally the whole set's status counts, in parallel
+      const [pageDocs, statusAgg] = await Promise.all([
+        TelemetryModel.find(filter, projection).sort({ serverTs: -1 }).skip(skip).limit(pageSize).lean() as unknown as Promise<RawDoc[]>,
+        TelemetryModel.aggregate([{ $match: filter }, { $group: { _id: '$data.status', n: { $sum: 1 } } }]),
+      ]);
+      docs = pageDocs;
+      for (const c of statusAgg as { _id: unknown; n: number }[]) {
+        totalCount += c.n;
+        if (c._id === 'running') runningCount += c.n;
+        else if (c._id === 'idle' || c._id === 'stopped') downtimeCount += c.n;
+      }
+    } else {
+      // legacy single-shot path (capped): used by callers that don't paginate
       const projection = withData ? undefined : HISTORY_PROJECTION;
       docs = (await TelemetryModel.find(filter, projection).sort({ serverTs: -1 }).limit(limit).lean()) as unknown as RawDoc[];
     }
@@ -124,12 +145,24 @@ router.get('/api/history', async (req, res) => {
       };
     });
 
-    const kpis = {
-      total: rows.length,
-      runningEntries: rows.filter((r) => r.status === 'running').length,
-      downtimeEntries: rows.filter((r) => r.status === 'idle' || r.status === 'stopped').length,
-    };
+    // KPIs: whole-set counts when paginating, else (legacy) counts of what we returned
+    const kpis = paginated
+      ? { total: totalCount, runningEntries: runningCount, downtimeEntries: downtimeCount }
+      : {
+          total: rows.length,
+          runningEntries: rows.filter((r) => r.status === 'running').length,
+          downtimeEntries: rows.filter((r) => r.status === 'idle' || r.status === 'stopped').length,
+        };
 
+    if (paginated) {
+      return res.json({
+        rows, kpis,
+        total: totalCount,
+        page,
+        limit: pageSize,
+        pages: Math.max(1, Math.ceil(totalCount / pageSize)),
+      });
+    }
     res.json({ rows, kpis });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load history' });

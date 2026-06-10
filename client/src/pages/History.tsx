@@ -13,12 +13,16 @@ import { useMachines, useJobs } from '../hooks/useData';
 import type { HistoryRow, JobRow } from '../hooks/useData';
 import { KpiCard, StatusPill, inputStyle } from '../components/ui';
 
-interface Resp { rows: HistoryRow[]; kpis: { total: number; runningEntries: number; downtimeEntries: number }; }
+interface Resp {
+  rows: HistoryRow[];
+  kpis: { total: number; runningEntries: number; downtimeEntries: number };
+  total: number; page: number; pages: number; limit: number;
+}
 type Row = HistoryRow & { job?: JobRow };
 
 // structured filters define the dataset (server query); search is instant (client)
 const EMPTY = { machineId: '', status: '', dateFrom: '', dateTo: '', timeFrom: '', timeTo: '' };
-const PAGE_SIZE = 25; // rows per page in the log table
+const PAGE_SIZE = 10; // rows per page — fetched one page at a time from the server
 
 export default function History() {
   const { machines } = useMachines();
@@ -28,7 +32,7 @@ export default function History() {
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);      // smooth instant filtering
   const [showMore, setShowMore] = useState(false);
-  const [data, setData] = useState<Resp>({ rows: [], kpis: { total: 0, runningEntries: 0, downtimeEntries: 0 } });
+  const [data, setData] = useState<Resp>({ rows: [], kpis: { total: 0, runningEntries: 0, downtimeEntries: 0 }, total: 0, page: 1, pages: 1, limit: PAGE_SIZE });
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
@@ -47,7 +51,7 @@ export default function History() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { limit: '1000' };
+      const params: Record<string, string> = { page: String(page), limit: String(PAGE_SIZE) };
       if (applied.machineId) params.machineId = applied.machineId;
       if (applied.status) params.status = applied.status;
       const from = toISO(applied.dateFrom, applied.timeFrom, false);
@@ -57,12 +61,13 @@ export default function History() {
       const res = await api.get<Resp>('/api/history', { params });
       setData(res.data);
     } catch { /* keep last good */ } finally { setLoading(false); }
-  }, [applied]);
+  }, [applied, page]);
 
   useEffect(() => { load(); }, [load]);
 
-  // join the machine's current job, then apply the instant search across its fields
-  const rows: Row[] = useMemo(() => {
+  // the server already returns just this page; join each row's current job,
+  // then refine within the page using the instant search box
+  const pageRows: Row[] = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase();
     const joined = data.rows.map((r) => ({ ...r, job: jobByMachine.get(r.machineCode) }));
     if (!q) return joined;
@@ -72,23 +77,20 @@ export default function History() {
     );
   }, [data.rows, jobByMachine, deferredSearch]);
 
-  const kpis = useMemo(() => ({
-    total: rows.length,
-    running: rows.filter((r) => r.status === 'running').length,
-    downtime: rows.filter((r) => r.status === 'idle' || r.status === 'stopped').length,
-  }), [rows]);
+  // KPIs reflect the WHOLE filtered dataset (computed server-side across all pages)
+  const kpis = { total: data.kpis.total, running: data.kpis.runningEntries, downtime: data.kpis.downtimeEntries };
 
-  // paginate the (filtered) rows; reset to page 1 whenever the result set changes
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, data.pages);
   const safePage = Math.min(page, totalPages);
-  const pageRows = useMemo(() => rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [rows, safePage]);
-  useEffect(() => { setPage(1); }, [deferredSearch, applied]);
+  const total = data.total;
+  const hasRows = data.rows.length > 0;
 
-  function apply() { setApplied({ ...f }); setOpen(new Set()); }
-  function clear() { setF({ ...EMPTY }); setApplied({ ...EMPTY }); setSearch(''); setOpen(new Set()); }
+  function apply() { setApplied({ ...f }); setPage(1); setOpen(new Set()); }
+  function clear() { setF({ ...EMPTY }); setApplied({ ...EMPTY }); setSearch(''); setPage(1); setOpen(new Set()); }
   function clearKeys(...keys: (keyof typeof EMPTY)[]) {
     setF((p) => { const n = { ...p }; keys.forEach((k) => (n[k] = '')); return n; });
     setApplied((p) => { const n = { ...p }; keys.forEach((k) => (n[k] = '')); return n; });
+    setPage(1);
   }
   function toggle(id: string) {
     setOpen((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -104,18 +106,35 @@ export default function History() {
 
   const dirty = JSON.stringify(f) !== JSON.stringify(applied);
 
-  function exportCSV() {
-    const head = ['Date & Time', 'Machine', 'Status', 'Speed', 'Production', 'Fabric', 'Job No.', 'Order No.', 'Operator', 'Supervisor'];
-    const lines = rows.map((r) => [
-      new Date(r.ts).toISOString(), r.machineCode, r.status, r.speed, r.production,
-      r.job?.fabricName ?? '', r.job?.jobNumber ?? '', r.job?.orderNumber ?? '',
-      r.job?.operatorName ?? '', r.job?.supervisorName ?? '',
-    ].join(','));
-    const blob = new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'machine-history.csv'; a.click();
-    URL.revokeObjectURL(url);
+  const [exporting, setExporting] = useState(false);
+  async function exportCSV() {
+    // the table is paginated (10/page); for export, pull the whole filtered set (capped) in one shot
+    setExporting(true);
+    try {
+      const params: Record<string, string> = { limit: '1000' };
+      if (applied.machineId) params.machineId = applied.machineId;
+      if (applied.status) params.status = applied.status;
+      const from = toISO(applied.dateFrom, applied.timeFrom, false);
+      const to = toISO(applied.dateTo, applied.timeTo, true);
+      if (from) params.from = from;
+      if (to) params.to = to;
+      const res = await api.get<Resp>('/api/history', { params }); // no `page` → legacy single-shot path
+      const q = deferredSearch.trim().toLowerCase();
+      const all = res.data.rows
+        .map((r) => ({ ...r, job: jobByMachine.get(r.machineCode) }))
+        .filter((r) => !q || `${r.machineCode} ${r.job?.fabricName || ''} ${r.job?.jobNumber || ''} ${r.job?.orderNumber || ''} ${r.job?.operatorName || ''} ${r.job?.supervisorName || ''}`.toLowerCase().includes(q));
+      const head = ['Date & Time', 'Machine', 'Status', 'Speed', 'Production', 'Fabric', 'Job No.', 'Order No.', 'Operator', 'Supervisor'];
+      const lines = all.map((r) => [
+        new Date(r.ts).toISOString(), r.machineCode, r.status, r.speed, r.production,
+        r.job?.fabricName ?? '', r.job?.jobNumber ?? '', r.job?.orderNumber ?? '',
+        r.job?.operatorName ?? '', r.job?.supervisorName ?? '',
+      ].join(','));
+      const blob = new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'machine-history.csv'; a.click();
+      URL.revokeObjectURL(url);
+    } catch { /* ignore */ } finally { setExporting(false); }
   }
 
   return (
@@ -127,8 +146,8 @@ export default function History() {
           <div style={{ fontSize: 20, fontWeight: 800 }}>Machine History</div>
           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Detailed production log with full filters</div>
         </div>
-        <button onClick={exportCSV} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--running)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 16px', fontWeight: 700, fontSize: 14 }}>
-          <Download size={16} /> Export CSV
+        <button onClick={exportCSV} disabled={exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--running)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 16px', fontWeight: 700, fontSize: 14, opacity: exporting ? 0.6 : 1 }}>
+          <Download size={16} /> {exporting ? 'Exporting…' : 'Export CSV'}
         </button>
       </div>
 
@@ -216,8 +235,8 @@ export default function History() {
           <tbody>
             {loading ? (
               <tr><td colSpan={11} style={{ ...td, textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>Loading history…</td></tr>
-            ) : rows.length === 0 ? (
-              <tr><td colSpan={11} style={{ ...td, textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No records match — adjust filters or let the simulator build history.</td></tr>
+            ) : pageRows.length === 0 ? (
+              <tr><td colSpan={11} style={{ ...td, textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>{deferredSearch.trim() ? 'No rows on this page match your search — clear it or change page.' : 'No records match — adjust filters or let the simulator build history.'}</td></tr>
             ) : pageRows.map((r) => {
               const j = r.job;
               const isOpen = open.has(r._id);
@@ -261,10 +280,10 @@ export default function History() {
       </div>
 
       {/* pagination footer */}
-      {!loading && rows.length > 0 && (
+      {!loading && hasRows && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            Showing <b style={{ color: 'var(--text)' }}>{(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, rows.length)}</b> of <b style={{ color: 'var(--text)' }}>{rows.length}</b>
+            Showing <b style={{ color: 'var(--text)' }}>{(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)}</b> of <b style={{ color: 'var(--text)' }}>{total.toLocaleString()}</b>
           </div>
           <HistoryPagination page={safePage} totalPages={totalPages} onChange={setPage} />
         </div>
