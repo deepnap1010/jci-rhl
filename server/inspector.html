@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SmartFactory · Ingestion Inspector</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --card: #ffffff;
+        --ink: #1a1d24;
+        --muted: #6b7280;
+        --line: #e6e8ec;
+        --blue: #2563eb;
+        --green: #16a34a;
+        --amber: #d97706;
+        --red: #dc2626;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      header {
+        background: var(--card); border-bottom: 1px solid var(--line);
+        padding: 16px 24px; display: flex; align-items: center; gap: 16px;
+        position: sticky; top: 0; z-index: 10;
+      }
+      header h1 { font-size: 16px; margin: 0; }
+      header .sub { color: var(--muted); font-size: 13px; }
+      .wrap { padding: 24px; max-width: 1100px; margin: 0 auto; }
+      .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+      input, select, button {
+        font: inherit; padding: 8px 12px; border: 1px solid var(--line);
+        border-radius: 8px; background: var(--card); color: var(--ink);
+      }
+      button { cursor: pointer; background: var(--blue); color: #fff; border: none; }
+      button.ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+      .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+      .pill.pending { background: #eff6ff; color: var(--blue); }
+      .pill.ok { background: #f0fdf4; color: var(--green); }
+      .pill.partial { background: #fffbeb; color: var(--amber); }
+      .pill.unknown_machine { background: #fef2f2; color: var(--red); }
+      .pill.error { background: #fef2f2; color: var(--red); }
+
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .panel {
+        background: var(--card); border: 1px solid var(--line);
+        border-radius: 12px; padding: 16px;
+      }
+      .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+        color: var(--muted); margin: 0 0 12px; }
+      .stat { display: flex; justify-content: space-between; padding: 6px 0;
+        border-bottom: 1px solid var(--line); font-size: 14px; }
+      .stat:last-child { border-bottom: none; }
+      .fields { font-family: var(--mono); font-size: 12px; color: var(--muted);
+        word-break: break-word; line-height: 1.6; }
+      .big { font-size: 28px; font-weight: 700; }
+
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      th, td { text-align: left; padding: 8px 10px; font-size: 13px;
+        border-bottom: 1px solid var(--line); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; font-size: 11px;
+        text-transform: uppercase; letter-spacing: .04em; }
+      td.body { font-family: var(--mono); font-size: 11px; color: #374151;
+        max-width: 480px; white-space: pre-wrap; word-break: break-word; }
+      .empty { color: var(--muted); padding: 40px; text-align: center; }
+      .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+        background: var(--green); margin-right: 6px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>🏭 Ingestion Inspector</h1>
+      <span class="sub"><span class="dot"></span>watching <span id="apiUrl"></span></span>
+    </header>
+
+    <div class="wrap">
+      <div class="controls">
+        <label>API base
+          <input id="base" value="http://localhost:4000" style="width: 220px" />
+        </label>
+        <label>Auto-refresh
+          <select id="interval">
+            <option value="2000">2s</option>
+            <option value="5000" selected>5s</option>
+            <option value="10000">10s</option>
+            <option value="0">off</option>
+          </select>
+        </label>
+        <button onclick="refresh()">Refresh now</button>
+        <button class="ghost" onclick="sendTest()">Send test packet</button>
+      </div>
+
+      <div class="grid" style="margin-bottom: 16px">
+        <div class="panel">
+          <h2>Total packets received</h2>
+          <div class="big" id="total">—</div>
+        </div>
+        <div class="panel">
+          <h2>Machines seen</h2>
+          <div id="byMachine"><span class="empty">no data yet</span></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom: 16px">
+        <h2>Field names observed (design your registry from this)</h2>
+        <div id="fields"><span class="empty">no data yet</span></div>
+      </div>
+
+      <div class="panel">
+        <h2>Latest raw packets</h2>
+        <div id="rawTable"><span class="empty">no packets yet — start the company's machines, or click "Send test packet"</span></div>
+      </div>
+    </div>
+
+    <script>
+      let timer = null;
+
+      function base() { return document.getElementById('base').value.replace(/\/$/, ''); }
+
+      async function refresh() {
+        const b = base();
+        document.getElementById('apiUrl').textContent = b;
+        try {
+          const [summary, raw] = await Promise.all([
+            fetch(b + '/api/inspect/summary').then((r) => r.json()),
+            fetch(b + '/api/inspect/raw?limit=50').then((r) => r.json()),
+          ]);
+          renderSummary(summary);
+          renderRaw(raw);
+        } catch (e) {
+          document.getElementById('rawTable').innerHTML =
+            '<span class="empty">Cannot reach API at ' + b + ' — is the server running?</span>';
+        }
+      }
+
+      function renderSummary(s) {
+        document.getElementById('total').textContent = s.total ?? 0;
+
+        const bm = (s.byMachine || []).filter((m) => m._id);
+        document.getElementById('byMachine').innerHTML = bm.length
+          ? bm.map((m) =>
+              `<div class="stat"><span>${m._id}</span><span>${m.count} packets</span></div>`
+            ).join('')
+          : '<span class="empty">no machine codes seen</span>';
+
+        const f = s.fields || [];
+        document.getElementById('fields').innerHTML = f.length
+          ? f.map((row) =>
+              `<div style="margin-bottom:12px">
+                 <strong>${row.machineCode}</strong>
+                 <div class="fields">${row.fieldNames.join(' · ')}</div>
+               </div>`
+            ).join('')
+          : '<span class="empty">no fields seen yet</span>';
+      }
+
+      function renderRaw(rows) {
+        if (!rows || !rows.length) {
+          document.getElementById('rawTable').innerHTML =
+            '<span class="empty">no packets yet</span>';
+          return;
+        }
+        const head =
+          '<table><thead><tr><th>Received</th><th>Machine</th><th>Status</th><th>Body</th></tr></thead><tbody>';
+        const body = rows.map((r) => {
+          const t = new Date(r.receivedAt).toLocaleTimeString();
+          const status = r.status || 'pending';
+          return `<tr>
+            <td>${t}</td>
+            <td>${r.machineCode || '—'}</td>
+            <td><span class="pill ${status}">${status}</span></td>
+            <td class="body">${JSON.stringify(r.body)}</td>
+          </tr>`;
+        }).join('');
+        document.getElementById('rawTable').innerHTML = head + body + '</tbody></table>';
+      }
+
+      // Send a fake packet so you can see the pipeline work before real machines connect
+      async function sendTest() {
+        const codes = ['WASHER-01', 'CBR-02', 'MAXI-01'];
+        const code = codes[Math.floor(Math.random() * codes.length)];
+        await fetch(base() + '/api/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': 'test-key' },
+          body: JSON.stringify({
+            machineCode: code,
+            speed: Math.round(Math.random() * 70),
+            temperature: 40 + Math.round(Math.random() * 50),
+            CHEM1TOTALLTR: +(Math.random() * 100).toFixed(1),
+            COMPSQUEEZER1: Math.round(Math.random() * 10),
+            AUTOMODE: Math.random() > 0.5,
+          }),
+        });
+        refresh();
+      }
+
+      function setInterval_() {
+        if (timer) clearInterval(timer);
+        const ms = Number(document.getElementById('interval').value);
+        if (ms > 0) timer = setInterval(refresh, ms);
+      }
+      document.getElementById('interval').addEventListener('change', setInterval_);
+
+      refresh();
+      setInterval_();
+    </script>
+  </body>
+</html>
