@@ -6,8 +6,8 @@
 // ============================================================
 import { useState } from 'react';
 import { Send, Inbox, ListChecks } from 'lucide-react';
-import { useTasks } from '../hooks/useData';
-import type { TaskRow } from '../hooks/useData';
+import { useTasks, useJobs } from '../hooks/useData';
+import type { TaskRow, JobRow } from '../hooks/useData';
 import type { Role } from '@shared/types';
 import { ROLE_LABELS } from '../config/nav';
 import { useToast } from '../components/Toast';
@@ -29,12 +29,28 @@ const STATUS_OPTIONS: { value: TaskRow['status']; label: string }[] = [
 
 export default function Tasks() {
   const { toMe, byMe, reports, assign, setStatus } = useTasks();
+  const { data: jobs } = useJobs();
   const toast = useToast();
   const canAssign = reports.length > 0;
+  // jobs created without anyone assigned → available to hand out from here
+  const unassignedJobs = jobs.filter((j) => !j.operatorId && !j.supervisorId);
   const [sel, setSel] = useState<CascadeSelection | null>(null);
+  const [linkedJob, setLinkedJob] = useState<JobRow | null>(null);
   const [form, setForm] = useState({ title: '', targetProduction: '', details: '' });
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  function linkJob(id: string) {
+    const job = unassignedJobs.find((j) => j._id === id) || null;
+    setLinkedJob(job);
+    if (job) {
+      setForm((p) => ({
+        ...p,
+        title: `${job.jobNumber}${job.fabricName && job.fabricName !== '—' ? ` — ${job.fabricName}` : ''}`,
+        targetProduction: String(job.targetProduction || ''),
+      }));
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,11 +62,15 @@ export default function Tasks() {
         title: form.title.trim(),
         details: form.details.trim(),
         targetProduction: Number(form.targetProduction) || 0,
-        machineId: sel.machineCode || null,
+        machineId: sel.machineCode || linkedJob?.machineCode || null,
+        department: linkedJob?.stage,
+        jobId: linkedJob?._id,
+        jobNumber: linkedJob?.jobNumber,
       });
       toast.success('Task assigned — they have been notified');
       setForm({ title: '', targetProduction: '', details: '' });
       setSel(null);
+      setLinkedJob(null);
     } catch (err) {
       toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to assign');
     } finally {
@@ -68,6 +88,22 @@ export default function Tasks() {
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, fontWeight: 800, marginBottom: 16 }}>
             <Send size={18} /> Assign a task to your team
           </h3>
+          {unassignedJobs.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Link an unassigned job (optional) — auto-fills title, target &amp; stage</span>
+              <select style={{ ...full, marginTop: 5 }} value={linkedJob?._id || ''} onChange={(e) => linkJob(e.target.value)}>
+                <option value="">— none (write a new task) —</option>
+                {unassignedJobs.map((j) => (
+                  <option key={j._id} value={j._id}>{j.jobNumber} · {j.fabricName || '—'} · {j.stage} · {j.targetProduction.toLocaleString()} mtr</option>
+                ))}
+              </select>
+              {linkedJob && (
+                <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>
+                  Linked to <b className="mono" style={{ color: 'var(--text)' }}>{linkedJob.jobNumber}</b> · stage <b style={{ color: 'var(--text)' }}>{linkedJob.stage}</b>{linkedJob.machineCode ? ` · ${linkedJob.machineCode}` : ''}
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ marginBottom: 14 }}>
             <OrgCascadePicker onChange={setSel} />
             {sel && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>Assigning to <b style={{ color: 'var(--text)' }}>{sel.name}</b>{sel.machineCode ? ` · ${sel.machineCode}` : ''}</div>}
