@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { Send, Inbox, ListChecks } from 'lucide-react';
 import { useTasks, useJobs } from '../hooks/useData';
-import type { TaskRow, JobRow } from '../hooks/useData';
+import type { TaskRow } from '../hooks/useData';
 import type { Role } from '@shared/types';
 import { ROLE_LABELS } from '../config/nav';
 import { useToast } from '../components/Toast';
@@ -27,29 +27,48 @@ const STATUS_OPTIONS: { value: TaskRow['status']; label: string }[] = [
   { value: 'done', label: 'Completed' },
 ];
 
+// a job you can hand down — either an unassigned job or one from a task assigned to you
+interface Linkable {
+  key: string; jobId: string | null; jobNumber: string; group: 'job' | 'mine';
+  label: string; title: string; targetProduction: number; stage: string; machineCode: string | null;
+}
+
 export default function Tasks() {
   const { toMe, byMe, reports, assign, setStatus } = useTasks();
   const { data: jobs } = useJobs();
   const toast = useToast();
   const canAssign = reports.length > 0;
-  // jobs created without anyone assigned → available to hand out from here
-  const unassignedJobs = jobs.filter((j) => !j.operatorId && !j.supervisorId);
+
+  // jobs you can hand down: ones created with nobody assigned, PLUS jobs from
+  // tasks assigned to YOU (so you can pass your own work further down the chain).
+  const fromJobs: Linkable[] = jobs
+    .filter((j) => !j.operatorId && !j.supervisorId)
+    .map((j) => ({
+      key: `job:${j._id}`, jobId: j._id, jobNumber: j.jobNumber, group: 'job',
+      label: `${j.jobNumber} · ${j.fabricName || '—'} · ${j.stage} · ${(j.targetProduction || 0).toLocaleString()} mtr`,
+      title: `${j.jobNumber}${j.fabricName && j.fabricName !== '—' ? ` — ${j.fabricName}` : ''}`,
+      targetProduction: j.targetProduction || 0, stage: j.stage, machineCode: j.machineId,
+    }));
+  const jobNums = new Set(fromJobs.map((x) => x.jobNumber));
+  const fromMine: Linkable[] = toMe
+    .filter((t) => t.jobNumber && !jobNums.has(t.jobNumber))
+    .map((t) => ({
+      key: `task:${t._id}`, jobId: t.jobId, jobNumber: t.jobNumber, group: 'mine',
+      label: `${t.jobNumber} · ${t.title} · ${(t.targetProduction || 0).toLocaleString()} mtr`,
+      title: t.title, targetProduction: t.targetProduction || 0, stage: t.department, machineCode: t.machineId,
+    }));
+  const linkable = [...fromJobs, ...fromMine];
+
   const [sel, setSel] = useState<CascadeSelection | null>(null);
-  const [linkedJob, setLinkedJob] = useState<JobRow | null>(null);
+  const [linked, setLinked] = useState<Linkable | null>(null);
   const [form, setForm] = useState({ title: '', targetProduction: '', details: '' });
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
 
-  function linkJob(id: string) {
-    const job = unassignedJobs.find((j) => j._id === id) || null;
-    setLinkedJob(job);
-    if (job) {
-      setForm((p) => ({
-        ...p,
-        title: `${job.jobNumber}${job.fabricName && job.fabricName !== '—' ? ` — ${job.fabricName}` : ''}`,
-        targetProduction: String(job.targetProduction || ''),
-      }));
-    }
+  function linkJob(key: string) {
+    const item = linkable.find((x) => x.key === key) || null;
+    setLinked(item);
+    if (item) setForm((p) => ({ ...p, title: item.title, targetProduction: String(item.targetProduction || '') }));
   }
 
   async function submit(e: React.FormEvent) {
@@ -62,15 +81,15 @@ export default function Tasks() {
         title: form.title.trim(),
         details: form.details.trim(),
         targetProduction: Number(form.targetProduction) || 0,
-        machineId: sel.machineCode || linkedJob?.machineCode || null,
-        department: linkedJob?.stage,
-        jobId: linkedJob?._id,
-        jobNumber: linkedJob?.jobNumber,
+        machineId: sel.machineCode || linked?.machineCode || null,
+        department: linked?.stage,
+        jobId: linked?.jobId || undefined,
+        jobNumber: linked?.jobNumber || undefined,
       });
       toast.success('Task assigned — they have been notified');
       setForm({ title: '', targetProduction: '', details: '' });
       setSel(null);
-      setLinkedJob(null);
+      setLinked(null);
     } catch (err) {
       toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to assign');
     } finally {
@@ -88,18 +107,25 @@ export default function Tasks() {
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, fontWeight: 800, marginBottom: 16 }}>
             <Send size={18} /> Assign a task to your team
           </h3>
-          {unassignedJobs.length > 0 && (
+          {linkable.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Link an unassigned job (optional) — auto-fills title, target &amp; stage</span>
-              <select style={{ ...full, marginTop: 5 }} value={linkedJob?._id || ''} onChange={(e) => linkJob(e.target.value)}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Link a job to pass down (optional) — auto-fills title, target &amp; stage</span>
+              <select style={{ ...full, marginTop: 5 }} value={linked?.key || ''} onChange={(e) => linkJob(e.target.value)}>
                 <option value="">— none (write a new task) —</option>
-                {unassignedJobs.map((j) => (
-                  <option key={j._id} value={j._id}>{j.jobNumber} · {j.fabricName || '—'} · {j.stage} · {j.targetProduction.toLocaleString()} mtr</option>
-                ))}
+                {fromJobs.length > 0 && (
+                  <optgroup label="Unassigned jobs">
+                    {fromJobs.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                  </optgroup>
+                )}
+                {fromMine.length > 0 && (
+                  <optgroup label="Assigned to me — pass down or keep">
+                    {fromMine.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                  </optgroup>
+                )}
               </select>
-              {linkedJob && (
+              {linked && (
                 <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>
-                  Linked to <b className="mono" style={{ color: 'var(--text)' }}>{linkedJob.jobNumber}</b> · stage <b style={{ color: 'var(--text)' }}>{linkedJob.stage}</b>{linkedJob.machineCode ? ` · ${linkedJob.machineCode}` : ''}
+                  Linked to <b className="mono" style={{ color: 'var(--text)' }}>{linked.jobNumber}</b> · stage <b style={{ color: 'var(--text)' }}>{linked.stage}</b>{linked.machineCode ? ` · ${linked.machineCode}` : ''}
                 </div>
               )}
             </div>
