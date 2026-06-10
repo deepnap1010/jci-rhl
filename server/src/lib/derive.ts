@@ -107,10 +107,13 @@ export interface MachineView {
 
 export function deriveView(machine: MachineDoc, latest: TelemetryDoc | null, pointInTime = false): MachineView {
   const data: Data = latest?.data || {};
-  const speed = num(data, ALIASES.speed);
-  const production = num(data, ALIASES.production);
+  // Speed, production (meters) and water flow are physically non-negative. Real PLC
+  // counters can momentarily read negative on a reset/rollover or send junk glitch
+  // values — clamp those at 0 so a bad reading never shows as "-27.8K".
+  const speed = Math.max(0, num(data, ALIASES.speed));
+  const production = Math.max(0, num(data, ALIASES.production));
   const temperature = num(data, ALIASES.temperature);
-  const waterFlow = num(data, ALIASES.waterFlow);
+  const waterFlow = Math.max(0, num(data, ALIASES.waterFlow));
 
   const runningSec = num(data, ['runningSeconds']);
   const idleSec = num(data, ['idleSeconds']);
