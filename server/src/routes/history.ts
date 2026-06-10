@@ -141,7 +141,7 @@ router.get('/api/history', async (req, res) => {
         temperature: s.temperature,
         waterFlow: s.waterFlow,
         efficiency: s.efficiency,
-        ...(withData ? { data: s.data } : {}), // s.data is counter-sanitized (unwrapped) by deriveView
+        ...(withData ? { data: d.data } : {}), // raw PLC payload, exactly as reported
       };
     });
 
