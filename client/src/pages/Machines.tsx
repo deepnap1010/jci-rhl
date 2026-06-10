@@ -247,7 +247,7 @@ function MachineCard({
 }: { m: MachineWithState; job?: JobRow; canConfigure: boolean; canReport: boolean; idleReport?: DowntimeReportRow; onResolveIdle: (id: string) => void; onDetails: () => void; onHistory: () => void; onConfigure: () => void; onReport: () => void }) {
   const s = m.state;
   const fresh = m.status !== 'disconnected';
-  const isDyeing = isDyeingMachine(m.machineType?.name, m.department);
+  const isDyeing = isDyeingMachine(m.machineType?.name, m.department, m.code);
   const production = s?.production ?? 0;
   const target = job?.targetProduction ?? 0;
   const pct = target > 0 ? Math.min(100, Math.round((production / target) * 100)) : 0;
@@ -626,7 +626,7 @@ function ConfigureModal({
   useModalDismiss(onClose);
   const type = m.machineType?.name ?? '';
   // dyeing machines (maxi / jet / soft-flow / cold-dyeing / reactive steamer) get the batch + loaded-fabric layout
-  const isDyeing = isDyeingMachine(type, m.department);
+  const isDyeing = isDyeingMachine(type, m.department, m.code);
 
   const [batchId, setBatchId] = useState(job?.batchId ?? '');
   const [processType, setProcessType] = useState(job?.processType || (isDyeing ? 'Dyeing' : ''));
@@ -827,11 +827,12 @@ function fmtK(n: number): string {
 }
 
 // dyeing / batch machines (soft-flow, maxi, jet, cold-dyeing, reactive steamer…)
-// get the batch-style card; continuous machines (CBR, mercerizer, menzel, washer) the production card
-function isDyeingMachine(type?: string | null, department?: string): boolean {
-  const t = (type || '').toLowerCase();
-  const d = (department || '').toLowerCase();
-  return /maxi|jet|soft|cold[\s_-]?dy|reactive|steamer|dye|dying/.test(t) || /dy(e|ing)/.test(d);
+// get the batch-style card; continuous machines (CBR, mercerizer, menzel, washer) the production card.
+// Match across type, department AND the machine code/name, so records with missing
+// type/department metadata (e.g. "colddyeing03") are still detected by their name.
+function isDyeingMachine(type?: string | null, department?: string, code?: string): boolean {
+  const hay = `${type || ''} ${department || ''} ${code || ''}`.toLowerCase();
+  return /maxi|jet|soft|cold[\s_-]?dy|reactive|steamer|dye|dying/.test(hay);
 }
 
 // "15 Apr 2026, 03:37 pm" — when fabric was loaded
