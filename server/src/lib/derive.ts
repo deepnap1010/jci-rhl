@@ -49,6 +49,13 @@ function num(data: Data, keys: string[]): number {
   return 0;
 }
 
+// Recover an unsigned 16-bit counter that overflowed into the signed range.
+// Values in [-32768, -1] are the wrapped form of [32768, 65535] → add 65536.
+function unwrap16(v: number): number {
+  if (v < 0 && v >= -32768) return v + 65536;
+  return Math.max(0, v);
+}
+
 export function departmentFor(data: Data, type?: string): Department {
   const fromData = typeof data.dept === 'string' ? data.dept.toLowerCase() : '';
   const fromType = (type || '').toLowerCase();
@@ -107,13 +114,14 @@ export interface MachineView {
 
 export function deriveView(machine: MachineDoc, latest: TelemetryDoc | null, pointInTime = false): MachineView {
   const data: Data = latest?.data || {};
-  // Speed, production (meters) and water flow are physically non-negative. Real PLC
-  // counters can momentarily read negative on a reset/rollover or send junk glitch
-  // values — clamp those at 0 so a bad reading never shows as "-27.8K".
+  // Speed and water flow are physically non-negative — a negative is a glitch → clamp at 0.
   const speed = Math.max(0, num(data, ALIASES.speed));
-  const production = Math.max(0, num(data, ALIASES.production));
   const temperature = num(data, ALIASES.temperature);
   const waterFlow = Math.max(0, num(data, ALIASES.waterFlow));
+  // Production / fabric-length is an UNSIGNED 16-bit PLC counter sent as signed: once the
+  // meter passes 32,767 it wraps to negative (e.g. true 38,523 m arrives as -27,013).
+  // Unwrap by adding 65,536 to recover the real meters instead of showing a negative.
+  const production = unwrap16(num(data, ALIASES.production));
 
   const runningSec = num(data, ['runningSeconds']);
   const idleSec = num(data, ['idleSeconds']);
