@@ -27,6 +27,9 @@ const JobSchema = new Schema(
     batchId: { type: String, default: '' }, // "01"
     processType: { type: String, default: '' }, // "Dyeing", "Bleaching", …
     loadedAt: { type: Date, default: null }, // when fabric was loaded onto the machine
+    glm: { type: Number, default: 0 }, // GLM / fabric weight (kg)
+    liquorRatio: { type: String, default: '' }, // bath ratio, e.g. "1:8"
+    dyeStage: { type: String, default: '' }, // process stage, e.g. "Heating", "Dyeing", "Rinsing"
     shift: { type: String, enum: ['A', 'B', 'C'], default: 'A' }, // which shift runs this job
   },
   { timestamps: true }

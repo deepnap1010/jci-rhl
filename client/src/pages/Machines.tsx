@@ -247,6 +247,7 @@ function MachineCard({
 }: { m: MachineWithState; job?: JobRow; canConfigure: boolean; canReport: boolean; idleReport?: DowntimeReportRow; onResolveIdle: (id: string) => void; onDetails: () => void; onHistory: () => void; onConfigure: () => void; onReport: () => void }) {
   const s = m.state;
   const fresh = m.status !== 'disconnected';
+  const isDyeing = isDyeingMachine(m.machineType?.name, m.department);
   const production = s?.production ?? 0;
   const target = job?.targetProduction ?? 0;
   const pct = target > 0 ? Math.min(100, Math.round((production / target) * 100)) : 0;
@@ -297,44 +298,72 @@ function MachineCard({
         </div>
       )}
 
-      {/* metric tiles */}
-      <div className="grid-two" style={{ gap: 8, marginTop: 14 }}>
-        <Metric label="Production" value={fmtK(production)} unit="mtr" />
-        <Metric label="Speed" value={s?.speed ?? 0} unit="m/min" />
-        <Metric label="Temperature" value={s?.temperature ?? 0} unit="°c" tone="warm" />
-        <Metric label="Efficiency" value={`${s?.efficiency ?? 0}%`} tone={(s?.efficiency ?? 0) < 1 ? 'warm' : 'plain'} />
-        <Metric label="Water Flow" value={s?.waterFlow ?? 0} unit="L/hr" tone="cool" />
-        <Metric label="Downtime" value={downtimeMin} unit="min" tone="warm" />
-      </div>
-
-      {/* production → target: full bar once there's output; compact line while still at 0 */}
-      {target > 0 && production > 0 ? (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-            <span>Production: <b style={strong}>{fmtK(production)} mtr</b></span>
-            <span>Target: <b style={strong}>{fmtK(target)} mtr</b></span>
+      {isDyeing ? (
+        // ── DYEING / BATCH machine: batch + loaded-fabric layout ──
+        <>
+          {(job?.batchId || job?.processType) && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              {job?.batchId && <span style={{ background: 'var(--brand-soft)', color: 'var(--brand)', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>Batch: {job.batchId}</span>}
+              {job?.processType && <span style={{ background: '#fdecd8', color: '#b06f00', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>{job.processType}</span>}
+            </div>
+          )}
+          <div className="grid-two" style={{ gap: 8, marginTop: 12 }}>
+            <Metric label="Loaded Meter" value={fmtK(target)} unit="mtr" />
+            <Metric label="Stage" value={job?.dyeStage || cap(m.status)} />
+            <Metric label="GLM (Weight)" value={fmtK(job?.glm ?? 0)} unit="kg" />
+            <Metric label="Liquor Ratio" value={job?.liquorRatio || '—'} />
+            <Metric label="Loaded Time" value={job?.loadedAt ? fmtLoaded(job.loadedAt) : '—'} tone={job?.loadedAt ? 'cool' : 'plain'} />
+            <Metric label="Duration" value={job?.loadedAt ? fmtSince(job.loadedAt) : '—'} />
+            <Metric label="Water (Pump)" value={fresh && s ? (s.waterFlow ?? 0) : '—'} unit="L" tone="cool" />
+            <Metric label="Temperature" value={fresh && s ? (s.temperature ?? 0) : '—'} unit="°c" tone="warm" />
           </div>
-          <div style={{ height: 8, background: 'var(--surface-2)', borderRadius: 99, overflow: 'hidden' }}>
-            <div style={{ width: `${Math.max(2, pct)}%`, height: '100%', background: pct >= 100 ? 'var(--accent-green)' : 'var(--accent-amber)', borderRadius: 99 }} />
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'grid', gap: 4 }}>
+            <div>Operator: <b style={strong}>{job?.operatorName || '—'}</b></div>
+            <div>Supervisor: <b style={strong}>{job?.supervisorName || '—'}</b></div>
           </div>
-          <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--accent-amber)', marginTop: 4 }}>{pct}%</div>
-        </div>
-      ) : target > 0 ? (
-        <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)' }}>
-          Target: <b style={strong}>{fmtK(target)} mtr</b> · <span style={{ color: 'var(--text-faint)' }}>no output yet</span>
-        </div>
-      ) : null}
-
-      {/* assigned-job context */}
-      {job ? (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'grid', gap: 4 }}>
-          <div>Fabric: <b style={strong}>{job.fabricName}</b></div>
-          <div>Job: <b style={strong}>{job.jobNumber}</b> · Order: <b style={strong}>{job.orderNumber}</b></div>
-          <div>Operator: <b style={strong}>{job.operatorName || '—'}</b></div>
-          <div>Supervisor: <b style={strong}>{job.supervisorName || '—'}</b></div>
-        </div>
+        </>
       ) : (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-faint)' }}>No job assigned · use Configure</div>
+        // ── CONTINUOUS machine: production layout ──
+        <>
+          <div className="grid-two" style={{ gap: 8, marginTop: 14 }}>
+            <Metric label="Production" value={fmtK(production)} unit="mtr" />
+            <Metric label="Speed" value={s?.speed ?? 0} unit="m/min" />
+            <Metric label="Temperature" value={s?.temperature ?? 0} unit="°c" tone="warm" />
+            <Metric label="Efficiency" value={`${s?.efficiency ?? 0}%`} tone={(s?.efficiency ?? 0) < 1 ? 'warm' : 'plain'} />
+            <Metric label="Water Flow" value={s?.waterFlow ?? 0} unit="L/hr" tone="cool" />
+            <Metric label="Downtime" value={downtimeMin} unit="min" tone="warm" />
+          </div>
+
+          {/* production → target: full bar once there's output; compact line while still at 0 */}
+          {target > 0 && production > 0 ? (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                <span>Production: <b style={strong}>{fmtK(production)} mtr</b></span>
+                <span>Target: <b style={strong}>{fmtK(target)} mtr</b></span>
+              </div>
+              <div style={{ height: 8, background: 'var(--surface-2)', borderRadius: 99, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.max(2, pct)}%`, height: '100%', background: pct >= 100 ? 'var(--accent-green)' : 'var(--accent-amber)', borderRadius: 99 }} />
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--accent-amber)', marginTop: 4 }}>{pct}%</div>
+            </div>
+          ) : target > 0 ? (
+            <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)' }}>
+              Target: <b style={strong}>{fmtK(target)} mtr</b> · <span style={{ color: 'var(--text-faint)' }}>no output yet</span>
+            </div>
+          ) : null}
+
+          {/* assigned-job context */}
+          {job ? (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'grid', gap: 4 }}>
+              <div>Fabric: <b style={strong}>{job.fabricName}</b></div>
+              <div>Job: <b style={strong}>{job.jobNumber}</b> · Order: <b style={strong}>{job.orderNumber}</b></div>
+              <div>Operator: <b style={strong}>{job.operatorName || '—'}</b></div>
+              <div>Supervisor: <b style={strong}>{job.supervisorName || '—'}</b></div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-faint)' }}>No job assigned · use Configure</div>
+          )}
+        </>
       )}
 
       {/* actions */}
@@ -586,6 +615,7 @@ function HistoryModal({ m, onClose }: { m: MachineWithState; onClose: () => void
 
 // ---- configure modal (assign job / batch context to a machine; persists a Job) ----
 const PROCESS_TYPES = ['Dyeing', 'Bleaching', 'Washing', 'Scouring', 'Finishing', 'Printing'];
+const DYE_STAGES = ['Idle', 'Loading', 'Heating', 'Dyeing', 'Rinsing', 'Soaping', 'Unloading', 'Done'];
 
 function ConfigureModal({
   m, job, onClose, onSaved,
@@ -595,11 +625,14 @@ function ConfigureModal({
   const toast = useToast();
   useModalDismiss(onClose);
   const type = m.machineType?.name ?? '';
-  // dyeing machines (maxi / jet / soft-flow / cold-dyeing) get the batch + loaded-fabric layout
-  const isDyeing = /maxi|jet|soft|cold_dyeing|dye|dying/i.test(type) || /dy(e|ing)/i.test(m.department);
+  // dyeing machines (maxi / jet / soft-flow / cold-dyeing / reactive steamer) get the batch + loaded-fabric layout
+  const isDyeing = isDyeingMachine(type, m.department);
 
   const [batchId, setBatchId] = useState(job?.batchId ?? '');
   const [processType, setProcessType] = useState(job?.processType || (isDyeing ? 'Dyeing' : ''));
+  const [glm, setGlm] = useState(job?.glm ? String(job.glm) : '');
+  const [liquorRatio, setLiquorRatio] = useState(job?.liquorRatio ?? '');
+  const [dyeStage, setDyeStage] = useState(job?.dyeStage ?? '');
   const [fabricName, setFabricName] = useState(job?.fabricName && job.fabricName !== '—' ? job.fabricName : '');
   const [length, setLength] = useState(job?.targetProduction ? String(job.targetProduction) : '');
   const [orderNumber, setOrderNumber] = useState(job?.orderNumber ?? '');
@@ -645,6 +678,9 @@ function ConfigureModal({
         batchId: isDyeing ? batchId : '',
         processType: isDyeing ? processType : '',
         loadedAt: isDyeing ? (job?.loadedAt ?? new Date().toISOString()) : null,
+        glm: isDyeing ? Number(glm) || 0 : 0,
+        liquorRatio: isDyeing ? liquorRatio : '',
+        dyeStage: isDyeing ? dyeStage : '',
       });
       toast.success(`${m.code} configuration saved`);
       onSaved();
@@ -676,7 +712,7 @@ function ConfigureModal({
         {isDyeing ? (
           <>
             <div style={section}>BATCH CONFIGURATION</div>
-            <div className="grid-two" style={{ gap: 12, marginBottom: 16 }}>
+            <div className="grid-two" style={{ gap: 12, marginBottom: 12 }}>
               <label><div style={lbl}>Batch ID</div><input style={field} value={batchId} onChange={(e) => setBatchId(e.target.value)} placeholder="01" /></label>
               <label><div style={lbl}>Process Type</div>
                 <select style={field} value={processType} onChange={(e) => setProcessType(e.target.value)}>
@@ -684,12 +720,22 @@ function ConfigureModal({
                 </select>
               </label>
             </div>
+            <div className="grid-two" style={{ gap: 12, marginBottom: 16 }}>
+              <label><div style={lbl}>GLM / Weight (kg)</div><input style={field} type="number" value={glm} onChange={(e) => setGlm(e.target.value)} placeholder="2000" /></label>
+              <label><div style={lbl}>Liquor Ratio</div><input style={field} value={liquorRatio} onChange={(e) => setLiquorRatio(e.target.value)} placeholder="1:8" /></label>
+            </div>
+            <label style={block}><div style={lbl}>Stage</div>
+              <select style={field} value={dyeStage} onChange={(e) => setDyeStage(e.target.value)}>
+                <option value="">— select —</option>
+                {DYE_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
 
             <div style={section}>LOADED FABRIC DETAILS</div>
             <label style={block}><div style={lbl}>Loaded Fabric Name</div>
               <input style={field} value={fabricName} onChange={(e) => setFabricName(e.target.value)} placeholder="Cotton Twill 20s, Denim 12oz…" />
             </label>
-            <label style={block}><div style={lbl}>Fabric Length (meters)</div>
+            <label style={block}><div style={lbl}>Loaded Meter (meters)</div>
               <input style={field} type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="10000" />
             </label>
             {loadedAtDisplay && (
@@ -779,6 +825,31 @@ function fmtK(n: number): string {
   if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return `${n}`;
 }
+
+// dyeing / batch machines (soft-flow, maxi, jet, cold-dyeing, reactive steamer…)
+// get the batch-style card; continuous machines (CBR, mercerizer, menzel, washer) the production card
+function isDyeingMachine(type?: string | null, department?: string): boolean {
+  const t = (type || '').toLowerCase();
+  const d = (department || '').toLowerCase();
+  return /maxi|jet|soft|cold[\s_-]?dy|reactive|steamer|dye|dying/.test(t) || /dy(e|ing)/.test(d);
+}
+
+// "15 Apr 2026, 03:37 pm" — when fabric was loaded
+function fmtLoaded(iso: string): string {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase();
+  return `${date}, ${time}`;
+}
+// elapsed since loaded → "1345h 46m"
+function fmtSince(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!(ms > 0)) return '0h 0m';
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return `${h}h ${m}m`;
+}
+const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 // "06 Jun, 3:14:09 PM" — date + time for the history rows
 function fmtHistDateTime(iso: string): string {

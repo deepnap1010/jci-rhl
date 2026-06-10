@@ -81,6 +81,9 @@ router.get('/api/jobs', async (req, res) => {
         batchId: j.batchId || '',
         processType: j.processType || '',
         loadedAt: j.loadedAt ? new Date(j.loadedAt).toISOString() : null,
+        glm: j.glm || 0,
+        liquorRatio: j.liquorRatio || '',
+        dyeStage: j.dyeStage || '',
         shift: j.shift || 'A',
       };
     });
@@ -151,6 +154,9 @@ router.put('/api/jobs/by-machine/:machineId', async (req, res) => {
       batchId: b.batchId || '',
       processType: b.processType || '',
       loadedAt: b.loadedAt ? new Date(b.loadedAt) : null,
+      glm: Number(b.glm) || 0,
+      liquorRatio: b.liquorRatio ? String(b.liquorRatio) : '',
+      dyeStage: b.dyeStage ? String(b.dyeStage) : '',
       shift: b.shift || 'A',
     };
     // one job per machine: update in place (keep its number), else create with an auto number

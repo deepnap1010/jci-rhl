@@ -183,6 +183,9 @@ export interface JobRow {
   batchId: string;
   processType: string;
   loadedAt: string | null;
+  glm: number;
+  liquorRatio: string;
+  dyeStage: string;
   shift: string;
 }
 
