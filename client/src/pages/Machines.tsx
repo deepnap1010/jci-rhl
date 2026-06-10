@@ -6,8 +6,8 @@
 import { useMemo, useState, useEffect, Fragment } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, X, ChevronRight, ChevronDown } from 'lucide-react';
-import { useMachines, useJobs, usePeople, useDowntimeReports, liveSummary, fmtLastSeen, fmtAgo } from '../hooks/useData';
-import type { MachineWithState, JobRow, DowntimeReportRow } from '../hooks/useData';
+import { useMachines, useJobs, usePeople, useOrg, useDowntimeReports, liveSummary, fmtLastSeen, fmtAgo } from '../hooks/useData';
+import type { MachineWithState, JobRow, DowntimeReportRow, OrgNode } from '../hooks/useData';
 import { KpiCard, StatusPill, Metric } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -591,6 +591,7 @@ function ConfigureModal({
   m, job, onClose, onSaved,
 }: { m: MachineWithState; job?: JobRow; onClose: () => void; onSaved: () => void }) {
   const people = usePeople();
+  const { data: org } = useOrg();
   const toast = useToast();
   useModalDismiss(onClose);
   const type = m.machineType?.name ?? '';
@@ -609,7 +610,21 @@ function ConfigureModal({
   const [error, setError] = useState('');
 
   const supervisors = people.filter((e) => e.role === 'supervisor');
-  const operators = people.filter((e) => e.role === 'operator');
+  // flatten the scoped org tree once, then resolve "operators reporting to a supervisor", then resolve "operators reporting to a supervisor"
+  const flatOrg = useMemo(() => {
+    const out: OrgNode[] = [];
+    const walk = (ns: OrgNode[]) => ns.forEach((n) => { out.push(n); walk(n.children); });
+    walk(org.nodes);
+    return out;
+  }, [org.nodes]);
+  const operatorsUnder = useMemo(() => {
+    const node = supervisorId ? flatOrg.find((n) => n.id === supervisorId) : null;
+    if (!node) return [] as { _id: string; name: string }[];
+    const ops: { _id: string; name: string }[] = [];
+    const walk = (ns: OrgNode[]) => ns.forEach((n) => { if (n.role === 'operator') ops.push({ _id: n.id, name: n.name }); walk(n.children); });
+    walk(node.children);
+    return ops;
+  }, [supervisorId, flatOrg]);
   const loadedAtDisplay = job?.loadedAt
     ? new Date(job.loadedAt).toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : null;
@@ -710,16 +725,30 @@ function ConfigureModal({
             <option value="C">Shift C</option>
           </select>
         </label>
-        <label style={block}><div style={lbl}>Operator</div>
-          <select style={field} value={operatorId} onChange={(e) => setOperatorId(e.target.value)}>
-            <option value="">— Select operator —</option>
-            {operators.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
-          </select>
-        </label>
         <label style={block}><div style={lbl}>Supervisor</div>
-          <select style={field} value={supervisorId} onChange={(e) => setSupervisorId(e.target.value)}>
+          <select
+            style={field}
+            value={supervisorId}
+            onChange={(e) => {
+              setSupervisorId(e.target.value);
+              setOperatorId(''); // clear operator — it must belong to the new supervisor
+            }}
+          >
             <option value="">— Select supervisor —</option>
             {supervisors.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
+          </select>
+        </label>
+        <label style={block}><div style={lbl}>↳ Operator</div>
+          <select
+            style={{ ...field, ...(supervisorId ? null : { background: 'var(--surface-2)', color: 'var(--text-faint)', cursor: 'not-allowed' }) }}
+            value={operatorId}
+            disabled={!supervisorId}
+            onChange={(e) => setOperatorId(e.target.value)}
+          >
+            <option value="">
+              {!supervisorId ? '— select a supervisor first —' : operatorsUnder.length ? '— Select operator —' : 'No operators report to this supervisor'}
+            </option>
+            {operatorsUnder.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
           </select>
         </label>
 
