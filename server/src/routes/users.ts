@@ -14,9 +14,16 @@ import { UserHistoryModel } from '../models/UserHistory';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { sendCredentialsEmail } from '../lib/mailer';
 import { archiveUser } from '../lib/archiveUser';
+import { notifyUser } from '../lib/userNotify';
 import type { Role } from '@shared/types';
 
 const router = Router();
+
+// human-friendly role names for change messages
+const ROLE_LABEL: Record<string, string> = {
+  superAdmin: 'Super Admin', admin: 'Admin', plantHead: 'Production Head',
+  prodManager: 'Production Manager', supervisor: 'Supervisor', operator: 'Operator', employee: 'Employee',
+};
 
 // roles a Super Admin is allowed to assign (admin is merged into superAdmin, so
 // it is no longer offered; cannot mint another superAdmin via the API either)
@@ -111,6 +118,14 @@ router.patch('/api/users/:id', async (req, res) => {
       return res.status(403).json({ error: 'The Super Admin account cannot be modified here' });
     }
     const b = req.body ?? {};
+    // snapshot the fields that matter to the person, so we can tell them what changed
+    const before = {
+      role: String(user.get('role') || ''),
+      managerId: user.get('managerId') ? String(user.get('managerId')) : null,
+      machines: ((user.get('assignedMachineIds') as string[]) || []).slice(),
+      isActive: user.get('isActive') !== false,
+    };
+
     if (b.name !== undefined) user.set('name', String(b.name).trim());
     if (b.role !== undefined) {
       if (!ASSIGNABLE.includes(b.role)) return res.status(400).json({ error: 'Invalid role' });
@@ -121,6 +136,41 @@ router.patch('/api/users/:id', async (req, res) => {
     if (b.managerId !== undefined) user.set('managerId', b.managerId || null);
     if (b.isActive !== undefined) user.set('isActive', !!b.isActive);
     await user.save();
+
+    // build a human-readable list of what changed, then notify the person
+    const changes: string[] = [];
+    const newRole = String(user.get('role') || '');
+    if (newRole !== before.role) changes.push(`role is now ${ROLE_LABEL[newRole] || newRole}`);
+
+    const newManagerId = user.get('managerId') ? String(user.get('managerId')) : null;
+    if (newManagerId !== before.managerId) {
+      if (newManagerId) {
+        const mgr = await UserModel.findById(newManagerId).select('name').lean();
+        changes.push(`you now report to ${(mgr as { name?: string } | null)?.name || 'a new manager'}`);
+      } else {
+        changes.push('you no longer have an assigned manager');
+      }
+    }
+
+    const newMachines = ((user.get('assignedMachineIds') as string[]) || []).slice();
+    const machinesChanged = newMachines.length !== before.machines.length || newMachines.some((m) => !before.machines.includes(m));
+    if (b.assignedMachineIds !== undefined && machinesChanged) {
+      changes.push(newMachines.length ? `assigned to ${newMachines.join(', ')}` : 'removed from all machines');
+    }
+
+    const newActive = user.get('isActive') !== false;
+    if (newActive !== before.isActive) changes.push(newActive ? 'your account was reactivated' : 'your account was deactivated');
+
+    if (changes.length) {
+      const io = req.app.get('io');
+      await notifyUser(io, user._id, {
+        type: 'accountChange',
+        title: 'Your account was updated',
+        body: changes.join(' · '),
+        severity: !newActive ? 'warning' : 'info',
+      });
+    }
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update user', detail: String(err) });

@@ -13,6 +13,7 @@ import { UserModel } from '../models/User';
 import { MachineModel } from '../models/Machine';
 import { departmentFor } from '../lib/derive';
 import { subtreeIds } from '../lib/orgTree';
+import { notifyUser } from '../lib/userNotify';
 
 const router = Router();
 
@@ -132,8 +133,44 @@ router.patch('/api/org/manager', async (req, res) => {
       if (below.has(managerId)) return res.status(400).json({ error: 'That would create a reporting loop' });
     }
 
+    const oldManagerId = target.get('managerId') ? String(target.get('managerId')) : null;
     target.set('managerId', managerId);
     await target.save();
+
+    // notify the people affected by the reporting-line change
+    if (managerId !== oldManagerId) {
+      const io = req.app.get('io');
+      const targetName = String(target.get('name') || 'A team member');
+      let managerName = '';
+      if (managerId) {
+        const mgr = await UserModel.findById(managerId).select('name').lean();
+        managerName = (mgr as { name?: string } | null)?.name || 'your new manager';
+      }
+      // the person whose manager changed
+      await notifyUser(io, userId, {
+        type: 'orgChange',
+        title: 'Your reporting line changed',
+        body: managerId
+          ? `You now report to ${managerName} (updated by ${me.name || 'an admin'}).`
+          : `You no longer have an assigned manager (updated by ${me.name || 'an admin'}).`,
+      });
+      // the new manager gains a report
+      if (managerId) {
+        await notifyUser(io, managerId, {
+          type: 'orgChange',
+          title: 'New team member',
+          body: `${targetName} now reports to you.`,
+        });
+      }
+      // the previous manager loses a report
+      if (oldManagerId) {
+        await notifyUser(io, oldManagerId, {
+          type: 'orgChange',
+          title: 'Team change',
+          body: `${targetName} no longer reports to you.`,
+        });
+      }
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to reassign manager', detail: String(err) });
