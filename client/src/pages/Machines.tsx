@@ -247,6 +247,7 @@ function MachineCard({
 }: { m: MachineWithState; job?: JobRow; canConfigure: boolean; canReport: boolean; idleReport?: DowntimeReportRow; onResolveIdle: (id: string) => void; onDetails: () => void; onHistory: () => void; onConfigure: () => void; onReport: () => void }) {
   const s = m.state;
   const fresh = m.status !== 'disconnected';
+  const isReactive = isReactiveSteamer(m.machineType?.name, m.department, m.code);
   const isDyeing = isDyeingMachine(m.machineType?.name, m.department, m.code);
   const production = s?.production ?? 0;
   const target = job?.targetProduction ?? 0;
@@ -298,7 +299,29 @@ function MachineCard({
         </div>
       )}
 
-      {isDyeing ? (
+      {isReactive ? (
+        // ── REACTIVE PROCESS STEAMER: steam / chamber params (no production/temp/water) ──
+        <>
+          <div className="grid-two" style={{ gap: 8, marginTop: 14 }}>
+            <ReMetric label="Length / Prod" v={dataNum(s?.data, ['length_Production', 'lengthProduction', 'length', 'production'])} unit="mtr" k />
+            <ReMetric label="Fabric Speed" v={dataNum(s?.data, ['fabricSpeed', 'speed', 'machineSpeed'])} unit="m/min" />
+            <ReMetric label="Chamber Temp" v={dataNum(s?.data, ['chamberTemperature', 'chamberTemp'])} unit="°c" tone="warm" />
+            <ReMetric label="Roof Temp" v={dataNum(s?.data, ['roofTemperature', 'roofTemp'])} unit="°c" tone="warm" />
+            <ReMetric label="Steam Pressure" v={dataNum(s?.data, ['steamPressure'])} unit="bar" />
+            <ReMetric label="Steam Flow" v={dataNum(s?.data, ['steamFlow', 'flow'])} unit="L/hr" tone="cool" />
+          </div>
+          {job ? (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'grid', gap: 4 }}>
+              <div>Fabric: <b style={strong}>{job.fabricName}</b></div>
+              <div>Job: <b style={strong}>{job.jobNumber}</b> · Order: <b style={strong}>{job.orderNumber}</b></div>
+              <div>Operator: <b style={strong}>{job.operatorName || '—'}</b></div>
+              <div>Supervisor: <b style={strong}>{job.supervisorName || '—'}</b></div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-faint)' }}>No job assigned · use Configure</div>
+          )}
+        </>
+      ) : isDyeing ? (
         // ── DYEING / BATCH machine: batch + loaded-fabric layout ──
         <>
           {(job?.batchId || job?.processType) && (
@@ -833,9 +856,31 @@ function fmtK(n: number): string {
 // type/department metadata (e.g. "colddyeing03") are still detected by their name.
 function isDyeingMachine(type?: string | null, department?: string, code?: string): boolean {
   const hay = `${type || ''} ${department || ''} ${code || ''}`.toLowerCase();
-  // reactive process steamers are continuous → production card, even though their dept is "Dyeing"
-  if (/reactive|steamer/.test(hay)) return false;
+  // reactive process steamers get their own card (below), not the batch one
+  if (isReactiveSteamer(type, department, code)) return false;
   return /maxi|jet|soft|cold[\s_-]?dy|dye|dying/.test(hay);
+}
+// reactive process steamers send steam/chamber params instead of production/temp/water
+function isReactiveSteamer(type?: string | null, department?: string, code?: string): boolean {
+  const hay = `${type || ''} ${department || ''} ${code || ''}`.toLowerCase();
+  return /reactive|steamer/.test(hay);
+}
+// read a numeric field from the raw PLC blob by any of several candidate keys (case-insensitive)
+function dataNum(data: Record<string, unknown> | undefined | null, keys: string[]): number | null {
+  if (!data) return null;
+  const lower: Record<string, unknown> = {};
+  for (const k in data) lower[k.toLowerCase()] = data[k];
+  for (const key of keys) {
+    const v = lower[key.toLowerCase()];
+    if (typeof v === 'number' && !isNaN(v)) return v;
+    if (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v))) return Number(v);
+  }
+  return null;
+}
+// metric tile fed by a raw value that may be missing → shows "—" instead of 0
+function ReMetric({ label, v, unit, tone = 'plain', k = false }: { label: string; v: number | null; unit?: string; tone?: 'plain' | 'warm' | 'cool' | 'bad'; k?: boolean }) {
+  const display = v == null ? '—' : k ? fmtK(v) : Number.isInteger(v) ? String(v) : v.toFixed(2);
+  return <Metric label={label} value={display} unit={unit} tone={tone} />;
 }
 
 // "15 Apr 2026, 03:37 pm" — when fabric was loaded
