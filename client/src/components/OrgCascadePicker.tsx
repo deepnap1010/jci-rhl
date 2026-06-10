@@ -13,7 +13,13 @@ import type { OrgNode } from '../hooks/useData';
 import { ROLE_LABELS } from '../config/nav';
 import type { Role } from '@shared/types';
 
-export interface CascadeSelection { userId: string; name: string; role: string; machineCode: string | null }
+export interface CascadeSelection {
+  userId: string;
+  name: string;
+  role: string;
+  machineCode: string | null;
+  path: { id: string; name: string; role: string }[]; // every level selected, top→deepest
+}
 
 export default function OrgCascadePicker({ onChange }: { onChange: (sel: CascadeSelection | null) => void }) {
   const { data } = useOrg();
@@ -42,9 +48,13 @@ export default function OrgCascadePicker({ onChange }: { onChange: (sel: Cascade
   const machines = deepestNode?.role === 'operator' ? deepestNode.machines : [];
 
   function emit(p: string[], mc: string) {
-    const id = [...p].reverse().find(Boolean) || '';
-    const node = id ? findNode(id) : null;
-    onChange(node ? { userId: node.id, name: node.name, role: node.role, machineCode: mc || null } : null);
+    const pathNodes = p
+      .filter(Boolean)
+      .map((id) => findNode(id))
+      .filter((n): n is OrgNode => !!n)
+      .map((n) => ({ id: n.id, name: n.name, role: n.role }));
+    const deepest = pathNodes[pathNodes.length - 1];
+    onChange(deepest ? { userId: deepest.id, name: deepest.name, role: deepest.role, machineCode: mc || null, path: pathNodes } : null);
   }
   function pick(level: number, value: string) {
     const next = path.slice(0, level);

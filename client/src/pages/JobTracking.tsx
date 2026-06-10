@@ -3,7 +3,7 @@
 // ============================================================
 import { useMemo, useState } from 'react';
 import { Search, X, Plus } from 'lucide-react';
-import { useJobs, useMachines, usePeople, useTasks } from '../hooks/useData';
+import { useJobs, useMachines, useTasks } from '../hooks/useData';
 import type { JobRow } from '../hooks/useData';
 import OrgCascadePicker from '../components/OrgCascadePicker';
 import type { CascadeSelection } from '../components/OrgCascadePicker';
@@ -115,40 +115,39 @@ export default function JobTracking() {
 // ---- create job modal ----
 function CreateJobModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const { machines } = useMachines();
-  const people = usePeople();
   const { assign } = useTasks(); // create a delegated task
-  const operators = people.filter((e) => e.role === 'operator');
-  const supervisors = people.filter((e) => e.role === 'supervisor');
-  const [f, setF] = useState({ orderNumber: '', fabricName: '', stage: DEPARTMENTS[0] as string, targetProduction: '', machineId: '', operatorId: '', supervisorId: '' });
+  const [f, setF] = useState({ orderNumber: '', fabricName: '', stage: DEPARTMENTS[0] as string, targetProduction: '', machineId: '' });
   const [taskSel, setTaskSel] = useState<CascadeSelection | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
-
-  // contextual: stage → only its machines; selected machine → only its operators/supervisors
+  // contextual: stage → only its machines
   const stageMachines = machines.filter((m) => m.department === f.stage);
-  const selMachineCode = machines.find((m) => m._id === f.machineId)?.code || '';
-  const opsForMachine = selMachineCode ? operators.filter((o) => o.assignedMachineIds.includes(selMachineCode)) : operators;
-  const supsForMachine = selMachineCode ? supervisors.filter((o) => o.assignedMachineIds.includes(selMachineCode)) : supervisors;
-  // changing stage/machine clears the now-invalid downstream picks
-  const setStage = (v: string) => setF((p) => ({ ...p, stage: v, machineId: '', operatorId: '', supervisorId: '' }));
-  const setMachine = (v: string) => setF((p) => ({ ...p, machineId: v, operatorId: '', supervisorId: '' }));
+  const setStage = (v: string) => setF((p) => ({ ...p, stage: v, machineId: '' }));
+  const setMachine = (v: string) => setF((p) => ({ ...p, machineId: v }));
 
   async function save() {
     if (!f.orderNumber || !f.fabricName) { setErr('Order number and fabric are required.'); return; }
     setSaving(true); setErr('');
     try {
-      const { data } = await api.post('/api/jobs', { ...f, targetProduction: Number(f.targetProduction) || 0, machineId: f.machineId || undefined, operatorId: f.operatorId || undefined, supervisorId: f.supervisorId || undefined });
-      // optionally hand this job down your org as a task (one action)
+      // operator/supervisor come from the hierarchy you drilled in the cascade
+      const operatorId = taskSel?.path.find((p) => p.role === 'operator')?.id;
+      const supervisorId = taskSel?.path.find((p) => p.role === 'supervisor')?.id;
+      const machineCode = taskSel?.machineCode || machines.find((m) => m._id === f.machineId)?.code || undefined;
+      const { data } = await api.post('/api/jobs', {
+        orderNumber: f.orderNumber, fabricName: f.fabricName, stage: f.stage,
+        targetProduction: Number(f.targetProduction) || 0,
+        machineId: machineCode, operatorId, supervisorId,
+      });
+      // hand this job down your org as a task to the person you picked
       if (taskSel?.userId && data?.jobNumber) {
-        const jobMachineCode = machines.find((m) => m._id === f.machineId)?.code || null;
         await assign({
           assignedToId: taskSel.userId,
           title: `${data.jobNumber}${f.fabricName ? ` — ${f.fabricName}` : ''}`,
           targetProduction: Number(f.targetProduction) || 0,
           department: f.stage,
-          machineId: taskSel.machineCode || jobMachineCode,
+          machineId: machineCode || null,
           jobId: data.id,
           jobNumber: data.jobNumber,
         });
@@ -169,18 +168,6 @@ function CreateJobModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           <select style={fullInput} value={f.machineId} onChange={(e) => setMachine(e.target.value)}>
             <option value="">{stageMachines.length ? '— none —' : 'No machines in this stage'}</option>
             {stageMachines.map((m) => <option key={m._id} value={m._id}>{m.code}</option>)}
-          </select>
-        </Field>
-        <Field label="Operator">
-          <select style={fullInput} value={f.operatorId} onChange={(e) => set('operatorId', e.target.value)}>
-            <option value="">{selMachineCode && opsForMachine.length === 0 ? 'No operator on this machine' : '— none —'}</option>
-            {opsForMachine.map((o) => <option key={o._id} value={o._id}>{o.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Supervisor">
-          <select style={fullInput} value={f.supervisorId} onChange={(e) => set('supervisorId', e.target.value)}>
-            <option value="">{selMachineCode && supsForMachine.length === 0 ? 'No supervisor on this machine' : '— none —'}</option>
-            {supsForMachine.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
           </select>
         </Field>
       </div>
