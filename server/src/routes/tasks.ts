@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { TaskModel } from '../models/Task';
 import { UserModel } from '../models/User';
 import { NotificationModel } from '../models/Notification';
+import { subtreeIds } from '../lib/orgTree';
 
 const router = Router();
 
@@ -91,10 +92,12 @@ router.post('/api/tasks', async (req, res) => {
     const assignee = await UserModel.findById(assignedToId).lean();
     if (!assignee) return res.status(404).json({ error: 'That person no longer exists' });
 
-    // you may only assign to your own direct reports (admins may assign to anyone)
-    const isMyReport = String(assignee.managerId || '') === String(me._id);
-    if (!isAdmin(me.role) && !isMyReport) {
-      return res.status(403).json({ error: 'You can only assign tasks to your own team members' });
+    // you may assign to anyone in your downline (your whole subtree); admins → anyone
+    if (!isAdmin(me.role)) {
+      const myTeam = await subtreeIds(me._id);
+      if (!myTeam.has(String(assignee._id))) {
+        return res.status(403).json({ error: 'You can only assign tasks to people in your team (your downline)' });
+      }
     }
 
     const target = Number(b.targetProduction) || 0;

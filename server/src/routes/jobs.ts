@@ -5,7 +5,7 @@
 // ============================================================
 import { Router } from 'express';
 import { JobModel } from '../models/Job';
-import { EmployeeModel } from '../models/Employee';
+import { UserModel } from '../models/User';
 import { getScopedViews, machineCodesInScope } from '../lib/derive';
 import { notifyJobAssignees } from '../lib/jobNotify';
 import { can } from '@shared/permissions';
@@ -56,8 +56,8 @@ router.get('/api/jobs', async (req, res) => {
     const all = await JobModel.find().sort({ updatedAt: -1 }).lean();
     const jobs = all.filter((j) => isAdmin || (j.machineId && scopedIds.has(String(j.machineId))));
 
-    const emps = await EmployeeModel.find().lean();
-    const nameById = new Map(emps.map((e) => [String(e._id), e.name]));
+    const people = await UserModel.find().select('name').lean();
+    const nameById = new Map(people.map((u) => [String(u._id), u.name]));
 
     const rows = jobs.map((j) => {
       const live = j.machineId ? prodBy.get(String(j.machineId)) : undefined;

@@ -21,8 +21,8 @@ const JobSchema = new Schema(
       default: 'pending',
     },
     machineId: { type: String, default: null }, // the machine's string code (e.g. "CBR-01")
-    operatorId: { type: Schema.Types.ObjectId, ref: 'Employee' },
-    supervisorId: { type: Schema.Types.ObjectId, ref: 'Employee' },
+    operatorId: { type: Schema.Types.ObjectId, ref: 'User' },
+    supervisorId: { type: Schema.Types.ObjectId, ref: 'User' },
     // ── dyeing-machine batch context (optional; set from the Configure modal) ──
     batchId: { type: String, default: '' }, // "01"
     processType: { type: String, default: '' }, // "Dyeing", "Bleaching", …

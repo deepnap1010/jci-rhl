@@ -38,9 +38,9 @@ export const NAV: Record<string, NavItem> = {
 
 // which pages each role sees, in order (mirrors backend roleConfig)
 export const ROLE_NAV: Record<Role, string[]> = {
-  superAdmin: ['dashboard','machines','jobs','downtime','historyLog','waterFlow','electricity','operatorMap','org','users','employees','roles','shifts','aiQuery'],
-  admin: ['dashboard','machines','jobs','downtime','historyLog','waterFlow','electricity','operatorMap','org','employees','roles','shifts','aiQuery'],
-  plantHead: ['dashboard','machines','jobs','downtime','history','waterFlow','electricity','org','employees','aiQuery'],
+  superAdmin: ['dashboard','machines','jobs','downtime','historyLog','waterFlow','electricity','operatorMap','org','users','roles','aiQuery'],
+  admin: ['dashboard','machines','jobs','downtime','historyLog','waterFlow','electricity','operatorMap','org','roles','aiQuery'],
+  plantHead: ['dashboard','machines','jobs','downtime','history','waterFlow','electricity','org','aiQuery'],
   prodManager: ['dashboard','machines','jobs','downtime','history','waterFlow','electricity','org','aiQuery'],
   supervisor: ['dashboard','machines','jobs','downtime','org'],
   operator: ['dashboard','machines','jobs','org'],

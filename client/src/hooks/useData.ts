@@ -282,6 +282,13 @@ export const useEmployees = () => useEndpoint<EmployeeRow[]>('/api/employees', [
 export const useRoles = () =>
   useEndpoint<{ roles: RoleRow[]; modules: string[]; actions: string[] }>('/api/roles', { roles: [], modules: [], actions: [] }, false);
 
+// ─── people (login users) for assignment dropdowns ──────────
+export interface PersonRow { _id: string; name: string; role: string; email: string; assignedMachineIds: string[] }
+export function usePeople(): PersonRow[] {
+  const { data } = useEndpoint<{ people: PersonRow[] }>('/api/people', { people: [] }, false);
+  return data.people;
+}
+
 // ─── alerts (role-scoped machine health) ────────────────────
 export type AlertSeverity = 'critical' | 'warning' | 'info';
 export interface AlertItem {

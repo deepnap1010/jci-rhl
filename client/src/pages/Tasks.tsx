@@ -12,6 +12,8 @@ import type { Role } from '@shared/types';
 import { ROLE_LABELS } from '../config/nav';
 import { useToast } from '../components/Toast';
 import { inputStyle } from '../components/ui';
+import OrgCascadePicker from '../components/OrgCascadePicker';
+import type { CascadeSelection } from '../components/OrgCascadePicker';
 
 const STATUS: Record<TaskRow['status'], { label: string; bg: string; color: string }> = {
   assigned: { label: 'Pending', bg: '#eef2ff', color: '#3b5bfd' },
@@ -29,23 +31,26 @@ export default function Tasks() {
   const { toMe, byMe, reports, assign, setStatus } = useTasks();
   const toast = useToast();
   const canAssign = reports.length > 0;
-  const [form, setForm] = useState({ assignedToId: '', title: '', targetProduction: '', details: '' });
+  const [sel, setSel] = useState<CascadeSelection | null>(null);
+  const [form, setForm] = useState({ title: '', targetProduction: '', details: '' });
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.assignedToId || !form.title.trim()) { toast.error('Pick a team member and enter a title'); return; }
+    if (!sel?.userId || !form.title.trim()) { toast.error('Pick a team member and enter a title'); return; }
     setBusy(true);
     try {
       await assign({
-        assignedToId: form.assignedToId,
+        assignedToId: sel.userId,
         title: form.title.trim(),
         details: form.details.trim(),
         targetProduction: Number(form.targetProduction) || 0,
+        machineId: sel.machineCode || null,
       });
       toast.success('Task assigned — they have been notified');
-      setForm({ assignedToId: '', title: '', targetProduction: '', details: '' });
+      setForm({ title: '', targetProduction: '', details: '' });
+      setSel(null);
     } catch (err) {
       toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to assign');
     } finally {
@@ -63,15 +68,11 @@ export default function Tasks() {
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, fontWeight: 800, marginBottom: 16 }}>
             <Send size={18} /> Assign a task to your team
           </h3>
+          <div style={{ marginBottom: 14 }}>
+            <OrgCascadePicker onChange={setSel} />
+            {sel && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>Assigning to <b style={{ color: 'var(--text)' }}>{sel.name}</b>{sel.machineCode ? ` · ${sel.machineCode}` : ''}</div>}
+          </div>
           <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 14, alignItems: 'end' }}>
-            <Field label="Assign to">
-              <select style={full} value={form.assignedToId} onChange={(e) => set('assignedToId', e.target.value)}>
-                <option value="">— select team member —</option>
-                {reports.map((u) => (
-                  <option key={u._id} value={u._id}>{u.name} ({ROLE_LABELS[u.role] ?? u.role})</option>
-                ))}
-              </select>
-            </Field>
             <Field label="Task / job title">
               <input style={full} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Run batch B-204 on line 3" />
             </Field>

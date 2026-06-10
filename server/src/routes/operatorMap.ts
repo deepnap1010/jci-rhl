@@ -4,7 +4,7 @@
 //  runs them (Employee.assignedMachineIds = machine string codes).
 // ============================================================
 import { Router } from 'express';
-import { EmployeeModel } from '../models/Employee';
+import { UserModel } from '../models/User';
 import { getScopedViews } from '../lib/derive';
 
 const router = Router();
@@ -15,7 +15,8 @@ router.get('/api/operator-map', async (req, res) => {
     const views = await getScopedViews(req.user!);
     const viewBy = new Map(views.map((v) => [v.machineId, v]));
 
-    const people = await EmployeeModel.find({ role: by }).sort({ code: 1 }).lean();
+    // login users (operators / supervisors) grouped by their assigned machines
+    const people = await UserModel.find({ role: by, isActive: { $ne: false } }).sort({ name: 1 }).lean();
     const personByMachine = new Map<string, (typeof people)[number]>();
     for (const p of people) {
       for (const mid of p.assignedMachineIds || []) {
@@ -32,7 +33,7 @@ router.get('/api/operator-map', async (req, res) => {
 
     for (const v of views) {
       const p = personByMachine.get(v.machineId);
-      const g = p ? groupFor(String(p._id), p.name, p.code) : groupFor('unassigned', '—', null);
+      const g = p ? groupFor(String(p._id), p.name, p.email || null) : groupFor('unassigned', '—', null);
       g.machines.push(v);
     }
 

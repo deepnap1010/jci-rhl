@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { UserModel } from '../models/User';
 import { MachineModel } from '../models/Machine';
 import { departmentFor } from '../lib/derive';
+import { subtreeIds } from '../lib/orgTree';
 
 const router = Router();
 
@@ -83,23 +84,26 @@ router.get('/api/org', async (req, res) => {
   }
 });
 
-// descendant ids of a root (not including the root itself)
-async function subtreeIds(rootId: unknown): Promise<Set<string>> {
-  const users = await UserModel.find().select('managerId').lean();
-  const byMgr = new Map<string, string[]>();
-  for (const u of users) {
-    const m = String((u as { managerId?: unknown }).managerId || '');
-    if (!byMgr.has(m)) byMgr.set(m, []);
-    byMgr.get(m)!.push(String(u._id));
+// GET /api/people → flat list of active login users (for assignment dropdowns)
+router.get('/api/people', async (req, res) => {
+  try {
+    const users = await UserModel.find({ isActive: { $ne: false } })
+      .select('name role email assignedMachineIds')
+      .sort({ name: 1 })
+      .lean();
+    res.json({
+      people: users.map((u) => ({
+        _id: String(u._id),
+        name: u.name,
+        role: String(u.role),
+        email: u.email || '',
+        assignedMachineIds: (u as { assignedMachineIds?: string[] }).assignedMachineIds || [],
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load people' });
   }
-  const out = new Set<string>();
-  const stack = [String(rootId)];
-  while (stack.length) {
-    const id = stack.pop()!;
-    for (const c of byMgr.get(id) || []) if (!out.has(c)) { out.add(c); stack.push(c); }
-  }
-  return out;
-}
+});
 
 // PATCH /api/org/manager  { userId, managerId|null }  — reassign who someone reports to
 router.patch('/api/org/manager', async (req, res) => {

@@ -6,8 +6,8 @@
 import { useMemo, useState, useEffect, Fragment } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, X, ChevronRight, ChevronDown } from 'lucide-react';
-import { useMachines, useJobs, useEmployees, useDowntimeReports, liveSummary, fmtLastSeen, fmtAgo } from '../hooks/useData';
-import type { MachineWithState, JobRow, EmployeeRow, DowntimeReportRow } from '../hooks/useData';
+import { useMachines, useJobs, usePeople, useDowntimeReports, liveSummary, fmtLastSeen, fmtAgo } from '../hooks/useData';
+import type { MachineWithState, JobRow, DowntimeReportRow } from '../hooks/useData';
 import { KpiCard, StatusPill, Metric } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -307,8 +307,8 @@ function MachineCard({
         <Metric label="Downtime" value={downtimeMin} unit="min" tone="warm" />
       </div>
 
-      {/* production → target (only when a target is set) */}
-      {target > 0 && (
+      {/* production → target: full bar once there's output; compact line while still at 0 */}
+      {target > 0 && production > 0 ? (
         <div style={{ marginTop: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
             <span>Production: <b style={strong}>{fmtK(production)} mtr</b></span>
@@ -319,7 +319,11 @@ function MachineCard({
           </div>
           <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--accent-amber)', marginTop: 4 }}>{pct}%</div>
         </div>
-      )}
+      ) : target > 0 ? (
+        <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)' }}>
+          Target: <b style={strong}>{fmtK(target)} mtr</b> · <span style={{ color: 'var(--text-faint)' }}>no output yet</span>
+        </div>
+      ) : null}
 
       {/* assigned-job context */}
       {job ? (
@@ -586,7 +590,7 @@ const PROCESS_TYPES = ['Dyeing', 'Bleaching', 'Washing', 'Scouring', 'Finishing'
 function ConfigureModal({
   m, job, onClose, onSaved,
 }: { m: MachineWithState; job?: JobRow; onClose: () => void; onSaved: () => void }) {
-  const { data: employees } = useEmployees();
+  const people = usePeople();
   const toast = useToast();
   useModalDismiss(onClose);
   const type = m.machineType?.name ?? '';
@@ -604,10 +608,8 @@ function ConfigureModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // an employee may be designated by the legacy `role` or the RBAC `roleSlug`
-  const isSup = (e: EmployeeRow) => /supervisor/i.test(`${e.role} ${e.roleSlug}`);
-  const supervisors = employees.filter(isSup);
-  const operators = employees.filter((e) => /operator/i.test(`${e.role} ${e.roleSlug}`) && !isSup(e));
+  const supervisors = people.filter((e) => e.role === 'supervisor');
+  const operators = people.filter((e) => e.role === 'operator');
   const loadedAtDisplay = job?.loadedAt
     ? new Date(job.loadedAt).toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : null;
@@ -711,13 +713,13 @@ function ConfigureModal({
         <label style={block}><div style={lbl}>Operator</div>
           <select style={field} value={operatorId} onChange={(e) => setOperatorId(e.target.value)}>
             <option value="">— Select operator —</option>
-            {operators.map((e) => <option key={e._id} value={e._id}>{e.name} ({e.code})</option>)}
+            {operators.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
           </select>
         </label>
         <label style={block}><div style={lbl}>Supervisor</div>
           <select style={field} value={supervisorId} onChange={(e) => setSupervisorId(e.target.value)}>
             <option value="">— Select supervisor —</option>
-            {supervisors.map((e) => <option key={e._id} value={e._id}>{e.name} ({e.code} — {e.department})</option>)}
+            {supervisors.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
           </select>
         </label>
 

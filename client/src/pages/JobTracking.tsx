@@ -3,9 +3,10 @@
 // ============================================================
 import { useMemo, useState } from 'react';
 import { Search, X, Plus } from 'lucide-react';
-import { useJobs, useMachines, useEmployees, useTasks } from '../hooks/useData';
+import { useJobs, useMachines, usePeople, useTasks } from '../hooks/useData';
 import type { JobRow } from '../hooks/useData';
-import { ROLE_LABELS } from '../config/nav';
+import OrgCascadePicker from '../components/OrgCascadePicker';
+import type { CascadeSelection } from '../components/OrgCascadePicker';
 import { KpiCard, inputStyle } from '../components/ui';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { api } from '../api/client';
@@ -114,31 +115,40 @@ export default function JobTracking() {
 // ---- create job modal ----
 function CreateJobModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const { machines } = useMachines();
-  const { data: employees } = useEmployees();
-  const { reports, assign } = useTasks(); // people I can hand this job to (my direct reports)
-  const operators = employees.filter((e) => e.role === 'operator');
-  const supervisors = employees.filter((e) => e.role === 'supervisor');
+  const people = usePeople();
+  const { assign } = useTasks(); // create a delegated task
+  const operators = people.filter((e) => e.role === 'operator');
+  const supervisors = people.filter((e) => e.role === 'supervisor');
   const [f, setF] = useState({ orderNumber: '', fabricName: '', stage: DEPARTMENTS[0] as string, targetProduction: '', machineId: '', operatorId: '', supervisorId: '' });
-  const [assignTaskTo, setAssignTaskTo] = useState('');
+  const [taskSel, setTaskSel] = useState<CascadeSelection | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
+
+  // contextual: stage → only its machines; selected machine → only its operators/supervisors
+  const stageMachines = machines.filter((m) => m.department === f.stage);
+  const selMachineCode = machines.find((m) => m._id === f.machineId)?.code || '';
+  const opsForMachine = selMachineCode ? operators.filter((o) => o.assignedMachineIds.includes(selMachineCode)) : operators;
+  const supsForMachine = selMachineCode ? supervisors.filter((o) => o.assignedMachineIds.includes(selMachineCode)) : supervisors;
+  // changing stage/machine clears the now-invalid downstream picks
+  const setStage = (v: string) => setF((p) => ({ ...p, stage: v, machineId: '', operatorId: '', supervisorId: '' }));
+  const setMachine = (v: string) => setF((p) => ({ ...p, machineId: v, operatorId: '', supervisorId: '' }));
 
   async function save() {
     if (!f.orderNumber || !f.fabricName) { setErr('Order number and fabric are required.'); return; }
     setSaving(true); setErr('');
     try {
       const { data } = await api.post('/api/jobs', { ...f, targetProduction: Number(f.targetProduction) || 0, machineId: f.machineId || undefined, operatorId: f.operatorId || undefined, supervisorId: f.supervisorId || undefined });
-      // optionally hand this job to a team member as a task (one action)
-      if (assignTaskTo && data?.jobNumber) {
-        const machineCode = machines.find((m) => m._id === f.machineId)?.code || null;
+      // optionally hand this job down your org as a task (one action)
+      if (taskSel?.userId && data?.jobNumber) {
+        const jobMachineCode = machines.find((m) => m._id === f.machineId)?.code || null;
         await assign({
-          assignedToId: assignTaskTo,
+          assignedToId: taskSel.userId,
           title: `${data.jobNumber}${f.fabricName ? ` — ${f.fabricName}` : ''}`,
           targetProduction: Number(f.targetProduction) || 0,
           department: f.stage,
-          machineId: machineCode,
+          machineId: taskSel.machineCode || jobMachineCode,
           jobId: data.id,
           jobNumber: data.jobNumber,
         });
@@ -154,29 +164,34 @@ function CreateJobModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
         <Field label="Order Number"><input style={fullInput} value={f.orderNumber} onChange={(e) => set('orderNumber', e.target.value)} placeholder="LOT7-01" /></Field>
         <Field label="Fabric"><input style={fullInput} value={f.fabricName} onChange={(e) => set('fabricName', e.target.value)} placeholder="Cotton" /></Field>
         <Field label="Target (mtr)"><input style={fullInput} type="number" value={f.targetProduction} onChange={(e) => set('targetProduction', e.target.value)} placeholder="15000" /></Field>
-        <Field label="Stage"><select style={fullInput} value={f.stage} onChange={(e) => set('stage', e.target.value)}>{DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}</select></Field>
-        <Field label="Machine"><select style={fullInput} value={f.machineId} onChange={(e) => set('machineId', e.target.value)}><option value="">— none —</option>{machines.map((m) => <option key={m._id} value={m._id}>{m.code}</option>)}</select></Field>
-        <Field label="Operator"><select style={fullInput} value={f.operatorId} onChange={(e) => set('operatorId', e.target.value)}><option value="">— none —</option>{operators.map((o) => <option key={o._id} value={o._id}>{o.name}</option>)}</select></Field>
-        <Field label="Supervisor"><select style={fullInput} value={f.supervisorId} onChange={(e) => set('supervisorId', e.target.value)}><option value="">— none —</option>{supervisors.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}</select></Field>
+        <Field label="Stage"><select style={fullInput} value={f.stage} onChange={(e) => setStage(e.target.value)}>{DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}</select></Field>
+        <Field label="Machine">
+          <select style={fullInput} value={f.machineId} onChange={(e) => setMachine(e.target.value)}>
+            <option value="">{stageMachines.length ? '— none —' : 'No machines in this stage'}</option>
+            {stageMachines.map((m) => <option key={m._id} value={m._id}>{m.code}</option>)}
+          </select>
+        </Field>
+        <Field label="Operator">
+          <select style={fullInput} value={f.operatorId} onChange={(e) => set('operatorId', e.target.value)}>
+            <option value="">{selMachineCode && opsForMachine.length === 0 ? 'No operator on this machine' : '— none —'}</option>
+            {opsForMachine.map((o) => <option key={o._id} value={o._id}>{o.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Supervisor">
+          <select style={fullInput} value={f.supervisorId} onChange={(e) => set('supervisorId', e.target.value)}>
+            <option value="">{selMachineCode && supsForMachine.length === 0 ? 'No supervisor on this machine' : '— none —'}</option>
+            {supsForMachine.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+          </select>
+        </Field>
       </div>
 
-      {/* hand the whole job to a team member as a task, in one action */}
+      {/* hand the whole job DOWN your org as a task — drill to the right person */}
       <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-        <Field label="Assign this job as a task to (optional)">
-          {reports.length > 0 ? (
-            <select style={fullInput} value={assignTaskTo} onChange={(e) => setAssignTaskTo(e.target.value)}>
-              <option value="">— don't assign —</option>
-              {reports.map((u) => <option key={u._id} value={u._id}>{u.name} ({ROLE_LABELS[u.role] ?? u.role})</option>)}
-            </select>
-          ) : (
-            <div style={{ ...fullInput, color: 'var(--text-faint)', display: 'flex', alignItems: 'center', fontSize: 13 }}>
-              No team members report to you yet — set their manager in User Management.
-            </div>
-          )}
-        </Field>
-        {reports.length > 0 && (
-          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>
-            They'll receive a task linked to this job (with its number and target) and a notification.
+        <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>Assign this job as a task (optional)</div>
+        <OrgCascadePicker onChange={setTaskSel} />
+        {taskSel && (
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 8 }}>
+            Will assign to <b style={{ color: 'var(--text)' }}>{taskSel.name}</b>{taskSel.machineCode ? ` · ${taskSel.machineCode}` : ''} — they get a task linked to this job + a notification.
           </div>
         )}
       </div>
@@ -184,7 +199,7 @@ function CreateJobModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
       {err && <div style={{ color: 'var(--stopped)', fontSize: 13, marginTop: 12 }}>{err}</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button onClick={onClose} style={ghostBtn}>Cancel</button>
-        <button onClick={save} disabled={saving} style={primaryBtn}>{saving ? 'Saving…' : assignTaskTo ? 'Create & assign' : 'Create Job'}</button>
+        <button onClick={save} disabled={saving} style={primaryBtn}>{saving ? 'Saving…' : taskSel ? 'Create & assign' : 'Create Job'}</button>
       </div>
     </Modal>
   );

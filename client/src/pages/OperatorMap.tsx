@@ -5,7 +5,7 @@
 // ============================================================
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { useOperatorMap, useMachines, useJobs, useEmployees } from '../hooks/useData';
+import { useOperatorMap, useMachines, useJobs, usePeople } from '../hooks/useData';
 import { StatusPill, Metric, inputStyle } from '../components/ui';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { useToast } from '../components/Toast';
@@ -79,13 +79,13 @@ function ControlModal({ code, onClose, onSaved }: { code: string; onClose: () =>
   const canAssign = can(role, 'assignJobs');
   const { machines } = useMachines();
   const { data: jobs } = useJobs();
-  const { data: employees } = useEmployees();
+  const people = usePeople();
   const toast = useToast();
 
   const m = machines.find((x) => x.code === code);
   const job = jobs.find((j) => j.machineCode === code && j.status === 'inProgress') || jobs.find((j) => j.machineCode === code);
-  const operators = employees.filter((e) => /operator/i.test(`${e.role} ${e.roleSlug}`));
-  const supervisors = employees.filter((e) => /supervisor/i.test(`${e.role} ${e.roleSlug}`));
+  const operators = people.filter((e) => e.role === 'operator');
+  const supervisors = people.filter((e) => e.role === 'supervisor');
 
   const [operatorId, setOperatorId] = useState('');
   const [supervisorId, setSupervisorId] = useState('');
@@ -153,13 +153,13 @@ function ControlModal({ code, onClose, onSaved }: { code: string; onClose: () =>
         <label style={block}><div style={lbl}>Operator</div>
           <select style={field} value={operatorId} onChange={(e) => setOperatorId(e.target.value)} disabled={!canAssign}>
             <option value="">— Select operator —</option>
-            {operators.map((e) => <option key={e._id} value={e._id}>{e.name} ({e.code})</option>)}
+            {operators.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
           </select>
         </label>
         <label style={block}><div style={lbl}>Supervisor</div>
           <select style={field} value={supervisorId} onChange={(e) => setSupervisorId(e.target.value)} disabled={!canAssign}>
             <option value="">— Select supervisor —</option>
-            {supervisors.map((e) => <option key={e._id} value={e._id}>{e.name} ({e.code})</option>)}
+            {supervisors.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
           </select>
         </label>
         <label style={block}><div style={lbl}>Shift</div>

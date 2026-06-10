@@ -6,7 +6,7 @@
 // ============================================================
 import { Router } from 'express';
 import { JobModel } from '../models/Job';
-import { EmployeeModel } from '../models/Employee';
+import { UserModel } from '../models/User';
 import { getScopedViews, latestByMachineInWindow } from '../lib/derive';
 import { DashboardData, DEPARTMENTS, Department } from '@shared/types';
 
@@ -43,8 +43,9 @@ router.get('/api/dashboard', async (req, res) => {
 
     const allJobs = await JobModel.find().lean();
     const jobs = allJobs.filter((j) => isAdmin || (j.machineId && scopedMachineIds.has(String(j.machineId))));
-    const allEmps = await EmployeeModel.find().lean();
-    const employees = allEmps.filter((e) => isAdmin || scopedDepts.has(e.department as never)).length;
+    // "on the floor" = operator + supervisor login accounts within the viewer's scope
+    const floor = await UserModel.find({ role: { $in: ['operator', 'supervisor'] }, isActive: { $ne: false } }).select('assignedMachineIds').lean();
+    const employees = floor.filter((u) => isAdmin || (u.assignedMachineIds || []).some((m: string) => scopedMachineIds.has(String(m)))).length;
 
     const deptStats = DEPARTMENTS.map((d) => {
       const ms = views.filter((v) => v.department === d && v.state);
