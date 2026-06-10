@@ -826,13 +826,16 @@ function fmtK(n: number): string {
   return `${n}`;
 }
 
-// dyeing / batch machines (soft-flow, maxi, jet, cold-dyeing, reactive steamer…)
-// get the batch-style card; continuous machines (CBR, mercerizer, menzel, washer) the production card.
+// BATCH dyeing machines (soft-flow, maxi, jet, cold-dyeing) get the batch-style card.
+// Continuous machines — CBR, mercerizer, menzel, washer, AND reactive process steamers —
+// get the production card (Production/Speed/Temp/Efficiency/Water/Downtime).
 // Match across type, department AND the machine code/name, so records with missing
 // type/department metadata (e.g. "colddyeing03") are still detected by their name.
 function isDyeingMachine(type?: string | null, department?: string, code?: string): boolean {
   const hay = `${type || ''} ${department || ''} ${code || ''}`.toLowerCase();
-  return /maxi|jet|soft|cold[\s_-]?dy|reactive|steamer|dye|dying/.test(hay);
+  // reactive process steamers are continuous → production card, even though their dept is "Dyeing"
+  if (/reactive|steamer/.test(hay)) return false;
+  return /maxi|jet|soft|cold[\s_-]?dy|dye|dying/.test(hay);
 }
 
 // "15 Apr 2026, 03:37 pm" — when fabric was loaded
