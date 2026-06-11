@@ -59,7 +59,12 @@ router.get('/api/downtime', async (req, res) => {
 router.get('/api/downtime/:machineId/events', async (req, res) => {
   try {
     const since = new Date(Date.now() - 24 * 3600 * 1000);
-    const docs = await TelemetryModel.find({ machineId: req.params.machineId, serverTs: { $gte: since } })
+    // only serverTs + data.status are needed to rebuild spells — projecting them (instead of the
+    // full data blob on every reading) cuts the payload from MBs of fat docs to a thin stream.
+    const docs = await TelemetryModel.find(
+      { machineId: req.params.machineId, serverTs: { $gte: since } },
+      { serverTs: 1, 'data.status': 1, _id: 0 },
+    )
       .sort({ serverTs: 1 })
       .lean();
 
