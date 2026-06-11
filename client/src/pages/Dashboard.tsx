@@ -27,6 +27,9 @@ export default function Dashboard() {
   const endDay = dateTo || dateFrom;
   const ranged = !!day;
   const rangeLabel = dateFrom && dateTo && dateFrom !== dateTo ? `${dateFrom} → ${dateTo}` : day;
+  // compact range for the small KPI sub-lines, e.g. "07 Jun – 11 Jun"
+  const fmtD = (s: string) => new Date(`${s}T00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  const periodShort = ranged ? (dateFrom && dateTo && dateFrom !== dateTo ? `${fmtD(dateFrom)} – ${fmtD(endDay)}` : fmtD(day)) : '';
   const fromISO = ranged ? new Date(`${day}T00:00`).toISOString() : undefined;
   const toISO = ranged ? new Date(`${endDay}T23:59`).toISOString() : undefined;
   const kpi = useDashboard(fromISO, toISO);
@@ -73,7 +76,7 @@ export default function Dashboard() {
 
       {/* KPI row 1 */}
       <div className="grid-stats-6" style={{ gap:12 }}>
-        <KpiCard label={ranged ? 'Production (period)' : 'Production Today'} value={(kpi?.todayProduction ?? 0).toLocaleString()} sub={`counter ${(kpi?.totalProduction ?? 0).toLocaleString()} · ${kpi?.totalMachines ?? 0} machines`} accent="var(--accent-blue)" onClick={() => setKpiModal('production')} />
+        <KpiCard label={ranged ? 'Total Production' : 'Production Today'} value={(kpi?.todayProduction ?? 0).toLocaleString()} sub={ranged ? `${periodShort} · ${kpi?.totalMachines ?? 0} machines` : `counter ${(kpi?.totalProduction ?? 0).toLocaleString()} · ${kpi?.totalMachines ?? 0} machines`} accent="var(--accent-blue)" onClick={() => setKpiModal('production')} />
         <KpiCard label="Running" value={`${kpi?.running ?? 0}/${kpi?.totalMachines ?? 0}`} sub={`${kpi?.idle ?? 0} idle`} accent="var(--accent-green)" onClick={() => setKpiModal('running')} />
         <KpiCard label="Avg Efficiency" value={`${kpi?.avgEfficiency ?? 0}%`} sub={ranged ? 'Time-weighted · period' : 'Time-weighted · today'} accent="var(--accent-amber)" onClick={() => setKpiModal('efficiency')} />
         <KpiCard label="Active Jobs" value={kpi?.activeJobs ?? 0} sub={`${kpi?.pendingJobs ?? 0} pending`} accent="var(--accent-teal)" onClick={() => setKpiModal('jobs')} />
@@ -83,10 +86,10 @@ export default function Dashboard() {
 
       {/* KPI row 2 — time based */}
       <div className="grid-stats-4" style={{ gap: 12, marginTop: 12 }}>
-        <KpiCard label="Running Time" value={fmtDuration(kpi?.runningSec ?? 0)} sub="Machine-hours today" accent="var(--accent-green)" onClick={() => setTimeModal('running')} />
-        <KpiCard label="Idle Time" value={fmtDuration(kpi?.idleSec ?? 0)} sub="Today" accent="var(--accent-amber)" onClick={() => setTimeModal('idle')} />
-        <KpiCard label="Stopped Time" value={fmtDuration(kpi?.stoppedSec ?? 0)} sub="Today" accent="var(--accent-red)" onClick={() => setTimeModal('stopped')} />
-        <KpiCard label="Total Downtime" value={fmtDuration(kpi?.downtimeSec ?? 0)} sub="Idle + stopped" accent="var(--accent-pink)" onClick={() => setTimeModal('downtime')} />
+        <KpiCard label="Running Time" value={fmtDuration(kpi?.runningSec ?? 0)} sub={ranged ? `Machine-hours · ${periodShort}` : 'Machine-hours today'} accent="var(--accent-green)" onClick={() => setTimeModal('running')} />
+        <KpiCard label="Idle Time" value={fmtDuration(kpi?.idleSec ?? 0)} sub={ranged ? periodShort : 'Today'} accent="var(--accent-amber)" onClick={() => setTimeModal('idle')} />
+        <KpiCard label="Stopped Time" value={fmtDuration(kpi?.stoppedSec ?? 0)} sub={ranged ? periodShort : 'Today'} accent="var(--accent-red)" onClick={() => setTimeModal('stopped')} />
+        <KpiCard label="Total Downtime" value={fmtDuration(kpi?.downtimeSec ?? 0)} sub={ranged ? `Idle + stopped · ${periodShort}` : 'Idle + stopped · today'} accent="var(--accent-pink)" onClick={() => setTimeModal('downtime')} />
       </div>
 
       {/* pipeline */}
@@ -149,16 +152,16 @@ export default function Dashboard() {
       {deptModal && (
         <DeptDetailModal mode={deptModal} deptStats={deptStats} machines={machines} onClose={() => setDeptModal(null)} />
       )}
-      {timeModal && <TimeBreakdownModal metric={timeModal} breakdown={kpi?.machineBreakdown ?? []} onClose={() => setTimeModal(null)} />}
-      {kpiModal && <KpiDetailModal kind={kpiModal} breakdown={kpi?.machineBreakdown ?? []} jobs={jobs} people={people} onClose={() => setKpiModal(null)} />}
+      {timeModal && <TimeBreakdownModal metric={timeModal} breakdown={kpi?.machineBreakdown ?? []} period={ranged ? periodShort : 'today'} onClose={() => setTimeModal(null)} />}
+      {kpiModal && <KpiDetailModal kind={kpiModal} breakdown={kpi?.machineBreakdown ?? []} jobs={jobs} people={people} period={ranged ? periodShort : 'today'} onClose={() => setKpiModal(null)} />}
     </div>
   );
 }
 
 // ---- drill-down for the 6 top KPI cards ----
 function KpiDetailModal({
-  kind, breakdown, jobs, people, onClose,
-}: { kind: KpiKind; breakdown: MachineBreakdown[]; jobs: JobRow[]; people: PersonRow[]; onClose: () => void }) {
+  kind, breakdown, jobs, people, period, onClose,
+}: { kind: KpiKind; breakdown: MachineBreakdown[]; jobs: JobRow[]; people: PersonRow[]; period: string; onClose: () => void }) {
   // ---- Active Jobs ----
   if (kind === 'jobs') {
     const order = { inProgress: 0, pending: 1, completed: 2 } as const;
@@ -238,9 +241,9 @@ function KpiDetailModal({
   let title = '';
   let highlight: 'today' | 'efficiency' | null = null;
   if (kind === 'production') {
-    rows.sort((a, b) => b.today - a.today); title = '📦 Production Today — by machine'; highlight = 'today';
+    rows.sort((a, b) => b.today - a.today); title = `📦 Production (${period}) — by machine`; highlight = 'today';
   } else if (kind === 'efficiency') {
-    rows.sort((a, b) => b.efficiency - a.efficiency); title = '⚡ Avg Efficiency (today) — by machine'; highlight = 'efficiency';
+    rows.sort((a, b) => b.efficiency - a.efficiency); title = `⚡ Avg Efficiency (${period}) — by machine`; highlight = 'efficiency';
   } else if (kind === 'running') {
     const ord: Record<string, number> = { running: 0, idle: 1, stopped: 2, disconnected: 3 };
     rows.sort((a, b) => (ord[a.status] ?? 9) - (ord[b.status] ?? 9) || b.today - a.today);
@@ -254,12 +257,12 @@ function KpiDetailModal({
   const runningCount = rows.filter((r) => r.status === 'running').length;
   const summary = kind === 'alerts'
     ? [<Mini key="a" label="Needs attention" value={String(rows.length)} />, <Mini key="b" label="Stopped" value={String(rows.filter((r) => r.status === 'stopped').length)} />, <Mini key="c" label="Offline" value={String(rows.filter((r) => r.status === 'disconnected').length)} />]
-    : [<Mini key="a" label="Produced today" value={`${todayProd.toLocaleString()} mtr`} />, <Mini key="b" label="Live counter sum" value={`${totalProd.toLocaleString()} mtr`} />, <Mini key="c" label="Running" value={String(runningCount)} />];
+    : [<Mini key="a" label={period === 'today' ? 'Produced today' : 'Produced (period)'} value={`${todayProd.toLocaleString()} mtr`} />, <Mini key="b" label="Live counter sum" value={`${totalProd.toLocaleString()} mtr`} />, <Mini key="c" label="Running" value={String(runningCount)} />];
   return (
     <Modal title={title} onClose={onClose}>
       <div className="grid-stats-3" style={{ gap: 10, marginBottom: 18 }}>{summary}</div>
       <table className="tbl">
-        <thead><tr><th>MACHINE</th><th>DEPARTMENT</th><th>STATUS</th><th className="r">TODAY</th><th className="r" title="Live PLC counter reading (raw; can wrap)">COUNTER</th><th className="r">EFFICIENCY</th><th className="r">DOWNTIME</th></tr></thead>
+        <thead><tr><th>MACHINE</th><th>DEPARTMENT</th><th>STATUS</th><th className="r">{period === 'today' ? 'TODAY' : 'PERIOD'}</th><th className="r" title="Live PLC counter reading (raw; can wrap)">COUNTER</th><th className="r">EFFICIENCY</th><th className="r">DOWNTIME</th></tr></thead>
         <tbody>
           {rows.length === 0 ? (
             <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>{kind === 'alerts' ? 'No alerts — everything is running. 🎉' : 'No machines in your scope.'}</td></tr>
@@ -292,7 +295,7 @@ function JobStatusPill({ status }: { status: JobRow['status'] }) {
 
 // ---- per-machine time breakdown (opened by clicking a time KPI) ----
 interface TRow { code: string; department: string; status: MachineWithState['status']; running: number; idle: number; stopped: number; downtime: number }
-function TimeBreakdownModal({ metric, breakdown, onClose }: { metric: TimeMetric; breakdown: MachineBreakdown[]; onClose: () => void }) {
+function TimeBreakdownModal({ metric, breakdown, period, onClose }: { metric: TimeMetric; breakdown: MachineBreakdown[]; period: string; onClose: () => void }) {
   const meta = TIME_META[metric];
   const rows: TRow[] = breakdown
     .map((m) => ({ code: m.code, department: m.department, status: m.status, running: m.runningSec, idle: m.idleSec, stopped: m.stoppedSec, downtime: m.downtimeSec }))
@@ -306,7 +309,7 @@ function TimeBreakdownModal({ metric, breakdown, onClose }: { metric: TimeMetric
     <td className="r mono" style={key === metric ? { color: meta.color, fontWeight: 800, background: 'var(--surface-2)' } : undefined}>{fmtDuration(v)}</td>
   );
   return (
-    <Modal title={`⏱ ${meta.label} — by machine · today`} onClose={onClose}>
+    <Modal title={`⏱ ${meta.label} — by machine · ${period}`} onClose={onClose}>
       <div className="grid-stats-3" style={{ gap: 10, marginBottom: 18 }}>
         <Mini label="Machines with time" value={String(rows.length)} />
         <Mini label={meta.label} value={fmtDuration(tot[metric])} />
