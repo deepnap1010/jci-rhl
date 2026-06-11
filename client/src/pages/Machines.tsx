@@ -581,24 +581,32 @@ interface HistRow {
   speed: number; production: number; temperature: number; waterFlow: number; efficiency: number;
   data?: Record<string, number | string | boolean>; // raw PLC snapshot for that reading
 }
+const HIST_PAGE = 10; // readings per page in the recent-history modal
 function HistoryModal({ m, onClose }: { m: MachineWithState; onClose: () => void }) {
   useModalDismiss(onClose);
   const [rows, setRows] = useState<HistRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
   const fields = m.machineType?.fields ?? [];
 
+  // one small page at a time from the server, so the modal opens fast
   useEffect(() => {
     let alive = true;
     const ctrl = new AbortController();
     setLoading(true);
     api
-      .get<{ rows: HistRow[] }>('/api/history', { params: { machineId: m.code, limit: 60, withData: 1, bucket: 'minute' }, signal: ctrl.signal })
-      .then((r) => { if (alive) setRows(r.data.rows || []); })
+      .get<{ rows: HistRow[]; total: number; pages: number }>('/api/history', {
+        params: { machineId: m.code, page, limit: HIST_PAGE, withData: 1 },
+        signal: ctrl.signal,
+      })
+      .then((r) => { if (alive) { setRows(r.data.rows || []); setTotal(r.data.total || 0); setPages(Math.max(1, r.data.pages || 1)); } })
       .catch((e) => { if (alive && e?.code !== 'ERR_CANCELED') setRows([]); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; ctrl.abort(); };
-  }, [m.code]);
+  }, [m.code, page]);
 
   const toggle = (id: string) => setOpen((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -609,7 +617,7 @@ function HistoryModal({ m, onClose }: { m: MachineWithState; onClose: () => void
           <h2 style={{ fontSize: 18, fontWeight: 800 }}>{m.code} — Recent History</h2>
           <button onClick={onClose} style={{ border: 'none', background: 'none' }}><X size={20} /></button>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>{m.name} · last {rows.length} minutes (1 reading/min) · click “Show details” for that moment's full data</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>{m.name} · {total.toLocaleString()} readings · {HIST_PAGE}/page · click “Show details” for that moment's full data</div>
         {loading ? (
           <div style={{ color: 'var(--text-muted)', padding: 24, textAlign: 'center' }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -679,10 +687,26 @@ function HistoryModal({ m, onClose }: { m: MachineWithState; onClose: () => void
             </tbody>
           </table>
         )}
+        {!loading && total > 0 && pages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Page <b style={{ color: 'var(--text)' }}>{page}</b> of <b style={{ color: 'var(--text)' }}>{pages}</b>
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => { setOpen(new Set()); setPage((p) => Math.max(1, p - 1)); }} disabled={page <= 1} style={histPagerBtn(page <= 1)}>‹ Prev</button>
+              <button onClick={() => { setOpen(new Set()); setPage((p) => Math.min(pages, p + 1)); }} disabled={page >= pages} style={histPagerBtn(page >= pages)}>Next ›</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+const histPagerBtn = (disabled: boolean): React.CSSProperties => ({
+  minWidth: 64, height: 32, padding: '0 12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+  border: '1px solid var(--border-strong)', background: 'var(--surface)',
+  color: disabled ? 'var(--text-faint)' : 'var(--brand)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1,
+});
 
 // ---- configure modal (assign job / batch context to a machine; persists a Job) ----
 const PROCESS_TYPES = ['Dyeing', 'Bleaching', 'Washing', 'Scouring', 'Finishing', 'Printing'];
