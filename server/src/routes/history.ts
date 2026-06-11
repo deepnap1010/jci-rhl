@@ -44,6 +44,28 @@ async function allMachinesCached(): Promise<Record<string, unknown>[]> {
   return docs;
 }
 
+// Status counts (total / running / downtime) depend only on the FILTER, not the page — yet the
+// table re-requests them on every page flip. Cache them briefly per filter so paging pays only the
+// small page fetch, not a 130k-doc scan each time. (History is past data; ~15s staleness is fine.)
+type Counts = { total: number; runningEntries: number; downtimeEntries: number };
+const countCache = new Map<string, { at: number; counts: Counts }>();
+const COUNT_TTL_MS = 15_000;
+async function statusCounts(filter: Record<string, unknown>): Promise<Counts> {
+  const key = JSON.stringify(filter);
+  const hit = countCache.get(key);
+  if (hit && Date.now() - hit.at < COUNT_TTL_MS) return hit.counts;
+  const agg = await TelemetryModel.aggregate([{ $match: filter }, { $group: { _id: '$data.status', n: { $sum: 1 } } }]);
+  const counts: Counts = { total: 0, runningEntries: 0, downtimeEntries: 0 };
+  for (const c of agg as { _id: unknown; n: number }[]) {
+    counts.total += c.n;
+    if (c._id === 'running') counts.runningEntries += c.n;
+    else if (c._id === 'idle' || c._id === 'stopped') counts.downtimeEntries += c.n;
+  }
+  if (countCache.size > 100) countCache.clear(); // bounded
+  countCache.set(key, { at: Date.now(), counts });
+  return counts;
+}
+
 // lightweight, telemetry-free scope: which machine docs may this user see?
 async function scopedMachines(user: User) {
   const machines = await allMachinesCached();
@@ -64,13 +86,18 @@ router.get('/api/history', async (req, res) => {
     const typeBy = new Map(machines.map((m) => [(m as { machineId: string }).machineId, (m as { type?: string }).type]));
     const nameBy = new Map(machines.map((m) => [(m as { machineId: string }).machineId, (m as { name?: string }).name]));
 
-    const filter: Record<string, unknown> = { machineId: { $in: scopedIds } };
+    // A redundant `machineId: {$in: [...all ids]}` blocks the time-series time index and makes the
+    // sort ~7x slower. Users who see EVERY machine don't need it at all; scoped users still get it.
+    const seesAll = req.user!.role === 'superAdmin' || req.user!.role === 'admin' || req.user!.role === 'plantHead';
+    const filter: Record<string, unknown> = {};
     if (req.query.machineId) {
       // honor the requested machine only if it's within scope
       if (!scopedIds.includes(String(req.query.machineId))) {
         return res.json({ rows: [], kpis: { total: 0, runningEntries: 0, downtimeEntries: 0 } });
       }
       filter.machineId = req.query.machineId;
+    } else if (!seesAll) {
+      filter.machineId = { $in: scopedIds };
     }
     if (req.query.status) filter['data.status'] = req.query.status;
 
@@ -106,17 +133,16 @@ router.get('/api/history', async (req, res) => {
     } else if (paginated) {
       // project only the fields deriveView needs (unless the caller wants the raw payload)
       const projection = withData ? undefined : HISTORY_PROJECTION;
-      // fetch just this page AND tally the whole set's status counts, in parallel
-      const [pageDocs, statusAgg] = await Promise.all([
+      // fetch just this page; status counts come from the per-filter cache (recomputed only when
+      // the filter changes, not on every page flip)
+      const [pageDocs, counts] = await Promise.all([
         TelemetryModel.find(filter, projection).sort({ serverTs: -1 }).skip(skip).limit(pageSize).lean() as unknown as Promise<RawDoc[]>,
-        TelemetryModel.aggregate([{ $match: filter }, { $group: { _id: '$data.status', n: { $sum: 1 } } }]),
+        statusCounts(filter),
       ]);
       docs = pageDocs;
-      for (const c of statusAgg as { _id: unknown; n: number }[]) {
-        totalCount += c.n;
-        if (c._id === 'running') runningCount += c.n;
-        else if (c._id === 'idle' || c._id === 'stopped') downtimeCount += c.n;
-      }
+      totalCount = counts.total;
+      runningCount = counts.runningEntries;
+      downtimeCount = counts.downtimeEntries;
     } else {
       // legacy single-shot path (capped): used by callers that don't paginate
       const projection = withData ? undefined : HISTORY_PROJECTION;
