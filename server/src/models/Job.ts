@@ -30,6 +30,10 @@ const JobSchema = new Schema(
     glm: { type: Number, default: 0 }, // GLM / fabric weight (kg)
     liquorRatio: { type: String, default: '' }, // bath ratio, e.g. "1:8"
     dyeStage: { type: String, default: '' }, // process stage, e.g. "Heating", "Dyeing", "Rinsing"
+    // ── reactive-steamer process setup (optional; set from the Configure modal) ──
+    targetSteamPressure: { type: Number, default: 0 }, // bar
+    targetChamberTemp: { type: Number, default: 0 }, // °C
+    targetDwellTime: { type: Number, default: 0 }, // minutes
     shift: { type: String, enum: ['A', 'B', 'C'], default: 'A' }, // which shift runs this job
   },
   { timestamps: true }

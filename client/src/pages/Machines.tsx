@@ -711,6 +711,7 @@ const histPagerBtn = (disabled: boolean): React.CSSProperties => ({
 // ---- configure modal (assign job / batch context to a machine; persists a Job) ----
 const PROCESS_TYPES = ['Dyeing', 'Bleaching', 'Washing', 'Scouring', 'Finishing', 'Printing'];
 const DYE_STAGES = ['Idle', 'Loading', 'Heating', 'Dyeing', 'Rinsing', 'Soaping', 'Unloading', 'Done'];
+const STEAMER_PROCESS = ['Steaming', 'Fixation', 'Curing', 'Finishing', 'Drying'];
 
 function ConfigureModal({
   m, job, onClose, onSaved,
@@ -720,14 +721,19 @@ function ConfigureModal({
   const toast = useToast();
   useModalDismiss(onClose);
   const type = m.machineType?.name ?? '';
-  // dyeing machines (maxi / jet / soft-flow / cold-dyeing / reactive steamer) get the batch + loaded-fabric layout
+  // dyeing machines (maxi / jet / soft-flow / cold-dyeing) get the batch layout;
+  // reactive process steamers get a steam-process layout; others a plain fabric+target form.
   const isDyeing = isDyeingMachine(type, m.department, m.code);
+  const isReactive = isReactiveSteamer(type, m.department, m.code);
 
   const [batchId, setBatchId] = useState(job?.batchId ?? '');
-  const [processType, setProcessType] = useState(job?.processType || (isDyeing ? 'Dyeing' : ''));
+  const [processType, setProcessType] = useState(job?.processType || (isDyeing ? 'Dyeing' : isReactive ? 'Steaming' : ''));
   const [glm, setGlm] = useState(job?.glm ? String(job.glm) : '');
   const [liquorRatio, setLiquorRatio] = useState(job?.liquorRatio ?? '');
   const [dyeStage, setDyeStage] = useState(job?.dyeStage ?? '');
+  const [steamPressure, setSteamPressure] = useState(job?.targetSteamPressure ? String(job.targetSteamPressure) : '');
+  const [chamberTemp, setChamberTemp] = useState(job?.targetChamberTemp ? String(job.targetChamberTemp) : '');
+  const [dwellTime, setDwellTime] = useState(job?.targetDwellTime ? String(job.targetDwellTime) : '');
   const [fabricName, setFabricName] = useState(job?.fabricName && job.fabricName !== '—' ? job.fabricName : '');
   const [length, setLength] = useState(job?.targetProduction ? String(job.targetProduction) : '');
   const [orderNumber, setOrderNumber] = useState(job?.orderNumber ?? '');
@@ -771,11 +777,14 @@ function ConfigureModal({
         operatorId: operatorId || null,
         supervisorId: supervisorId || null,
         batchId: isDyeing ? batchId : '',
-        processType: isDyeing ? processType : '',
+        processType: isDyeing || isReactive ? processType : '',
         loadedAt: isDyeing ? (job?.loadedAt ?? new Date().toISOString()) : null,
         glm: isDyeing ? Number(glm) || 0 : 0,
         liquorRatio: isDyeing ? liquorRatio : '',
         dyeStage: isDyeing ? dyeStage : '',
+        targetSteamPressure: isReactive ? Number(steamPressure) || 0 : 0,
+        targetChamberTemp: isReactive ? Number(chamberTemp) || 0 : 0,
+        targetDwellTime: isReactive ? Number(dwellTime) || 0 : 0,
       });
       toast.success(`${m.code} configuration saved`);
       onSaved();
@@ -857,6 +866,27 @@ function ConfigureModal({
                 ✓ Loaded at: {loadedAtDisplay}
               </div>
             )}
+            <div style={{ borderTop: '1px dashed var(--border)', margin: '4px 0 16px' }} />
+          </>
+        ) : isReactive ? (
+          <>
+            <div style={section}>STEAMER PROCESS SETUP</div>
+            <label style={block}><div style={lbl}>Fabric Name</div>
+              <input style={field} value={fabricName} onChange={(e) => setFabricName(e.target.value)} placeholder="Cotton, Cotrize…" />
+            </label>
+            <div className="grid-two" style={{ gap: 12, marginBottom: 12 }}>
+              <label><div style={lbl}>Process Type</div>
+                <select style={field} value={processType} onChange={(e) => setProcessType(e.target.value)}>
+                  {STEAMER_PROCESS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </label>
+              <label><div style={lbl}>Target Length (meters)</div><input style={field} type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="25000" /></label>
+            </div>
+            <div className="grid-two" style={{ gap: 12, marginBottom: 12 }}>
+              <label><div style={lbl}>Steam Pressure (bar)</div><input style={field} type="number" value={steamPressure} onChange={(e) => setSteamPressure(e.target.value)} placeholder="40" /></label>
+              <label><div style={lbl}>Chamber Temp (°C)</div><input style={field} type="number" value={chamberTemp} onChange={(e) => setChamberTemp(e.target.value)} placeholder="100" /></label>
+            </div>
+            <label style={block}><div style={lbl}>Dwell Time (min)</div><input style={field} type="number" value={dwellTime} onChange={(e) => setDwellTime(e.target.value)} placeholder="16" /></label>
             <div style={{ borderTop: '1px dashed var(--border)', margin: '4px 0 16px' }} />
           </>
         ) : (
