@@ -13,36 +13,35 @@ import { DashboardData, DEPARTMENTS, Department } from '@shared/types';
 
 const router = Router();
 
-// production counters are cumulative; output over a window = (counter at window end) − (counter at start).
-// "start" = the last reading before the window; if none (machine first seen inside it), the window's
-// earliest reading. Clamped at 0 so a counter reset/rollover can't make a window go negative.
+// Telemetry counters (production meters, run/idle/stopped/downtime seconds) are CUMULATIVE
+// lifetime totals. A timeframe's value is therefore a delta:
+//   value(window) = (counter at the window's latest reading) − (last counter before it started)
+// clamped at 0 so a counter reset/rollover can never make a window go negative. Efficiency is
+// time-weighted from those windowed seconds (runningSec / active), not a mean of per-machine %.
+type Cum = { production: number; runningSec: number; idleSec: number; stoppedSec: number; downtimeSec: number };
+const ZERO: Cum = { production: 0, runningSec: 0, idleSec: 0, stoppedSec: 0, downtimeSec: 0 };
+
 function asNum(x: unknown): number | null {
   if (typeof x === 'number' && !isNaN(x)) return x;
   if (typeof x === 'string' && x.trim() !== '' && !isNaN(Number(x))) return Number(x);
   return null;
 }
-async function windowProduction(ids: string[], winStart: Date, winEnd: Date): Promise<number> {
-  const proj = { 'data.production': 1, 'data.fabricLength': 1 } as const;
-  const prodOf = (d: { data?: Record<string, unknown> } | null): number | null =>
-    d ? (asNum(d.data?.production) ?? asNum(d.data?.fabricLength)) : null;
-  const per = await Promise.all(
-    ids.map(async (id) => {
-      const [endDoc, baseDoc] = await Promise.all([
-        TelemetryModel.findOne({ machineId: id, serverTs: { $lte: winEnd } }, proj).sort({ serverTs: -1 }).lean(),
-        TelemetryModel.findOne({ machineId: id, serverTs: { $lt: winStart } }, proj).sort({ serverTs: -1 }).lean(),
-      ]);
-      const end = prodOf(endDoc as never);
-      if (end == null) return 0;
-      let start = prodOf(baseDoc as never);
-      if (start == null) {
-        const firstDoc = await TelemetryModel.findOne({ machineId: id, serverTs: { $gte: winStart, $lte: winEnd } }, proj).sort({ serverTs: 1 }).lean();
-        start = prodOf(firstDoc as never);
-      }
-      if (start == null) return 0;
-      return Math.max(0, end - start);
-    })
-  );
-  return per.reduce((s, x) => s + x, 0);
+function pick(data: Record<string, unknown> | undefined, keys: string[]): number {
+  if (!data) return 0;
+  for (const k of keys) { const v = asNum(data[k]); if (v != null) return v; }
+  return 0;
+}
+// cumulative counters out of a raw telemetry blob (the day-start baseline)
+function cumFromData(data?: Record<string, unknown>): Cum {
+  const idleSec = pick(data, ['idleSeconds']);
+  const stoppedSec = pick(data, ['stoppedSeconds']);
+  return {
+    production: pick(data, ['production', 'fabricLength', 'counter']),
+    runningSec: pick(data, ['runningSeconds']),
+    idleSec,
+    stoppedSec,
+    downtimeSec: pick(data, ['downtimeSeconds']) || idleSec + stoppedSec,
+  };
 }
 
 router.get('/api/dashboard', async (req, res) => {
@@ -59,23 +58,51 @@ router.get('/api/dashboard', async (req, res) => {
     const stopped = views.filter((v) => v.status === 'stopped').length;
 
     const withState = views.filter((v) => v.state);
+    // lifetime cumulative production (the "Total" sub-line on the card)
     const totalProduction = withState.reduce((s, v) => s + (v.state!.production || 0), 0);
 
-    // production within the active window: the selected day range, or "today" (from the
-    // client's local midnight in ?dayStart=) up to now for the live view.
+    // active window: a selected day range, or "today" (client's local midnight in ?dayStart=)
+    // up to now for the live view. v.state already holds the counter at the window's latest reading.
     const ds = req.query.dayStart ? new Date(String(req.query.dayStart)) : null;
     const winStart = range ? range.from : (ds && !isNaN(ds.getTime()) ? ds : null);
-    const winEnd = range ? range.to : new Date();
-    const todayProduction = winStart ? await windowProduction(views.map((v) => v.machineId), winStart, winEnd) : 0;
 
-    const avgEfficiency = withState.length
-      ? Math.round(withState.reduce((s, v) => s + (v.state!.efficiency || 0), 0) / withState.length)
-      : 0;
+    // per-machine windowed delta = latest counters − counters just before the window started
+    const metricByMachine = new Map<string, Cum>();
+    await Promise.all(views.map(async (v) => {
+      if (!v.state) { metricByMachine.set(v.machineId, ZERO); return; }
+      const end: Cum = {
+        production: v.state.production || 0,
+        runningSec: v.state.runningSec || 0,
+        idleSec: v.state.idleSec || 0,
+        stoppedSec: v.state.stoppedSec || 0,
+        downtimeSec: v.state.downtimeSec || 0,
+      };
+      if (!winStart) { metricByMachine.set(v.machineId, end); return; } // no window → lifetime totals
+      const baseDoc = await TelemetryModel.findOne({ machineId: v.machineId, serverTs: { $lt: winStart } }, { data: 1 })
+        .sort({ serverTs: -1 }).lean();
+      const base = baseDoc ? cumFromData((baseDoc as { data?: Record<string, unknown> }).data) : ZERO;
+      metricByMachine.set(v.machineId, {
+        production: Math.max(0, end.production - base.production),
+        runningSec: Math.max(0, end.runningSec - base.runningSec),
+        idleSec: Math.max(0, end.idleSec - base.idleSec),
+        stoppedSec: Math.max(0, end.stoppedSec - base.stoppedSec),
+        downtimeSec: Math.max(0, end.downtimeSec - base.downtimeSec),
+      });
+    }));
 
-    const runningSec = withState.reduce((s, v) => s + (v.state!.runningSec || 0), 0);
-    const idleSec = withState.reduce((s, v) => s + (v.state!.idleSec || 0), 0);
-    const stoppedSec = withState.reduce((s, v) => s + (v.state!.stoppedSec || 0), 0);
-    const downtimeSec = withState.reduce((s, v) => s + (v.state!.downtimeSec || 0), 0);
+    // aggregate the windowed metrics across the scoped fleet
+    let todayProduction = 0, runningSec = 0, idleSec = 0, stoppedSec = 0, downtimeSec = 0;
+    for (const v of views) {
+      const m = metricByMachine.get(v.machineId) || ZERO;
+      todayProduction += m.production;
+      runningSec += m.runningSec;
+      idleSec += m.idleSec;
+      stoppedSec += m.stoppedSec;
+      downtimeSec += m.downtimeSec;
+    }
+    // time-weighted fleet efficiency (correct aggregate, not a mean of per-machine percentages)
+    const activeSec = runningSec + idleSec + stoppedSec;
+    const avgEfficiency = activeSec > 0 ? Math.round((runningSec / activeSec) * 100) : 0;
 
     // jobs (scoped by machine) + employees (scoped by department)
     const isAdmin = req.user!.role === 'superAdmin' || req.user!.role === 'admin' || req.user!.role === 'plantHead';
@@ -88,13 +115,14 @@ router.get('/api/dashboard', async (req, res) => {
     const floor = await UserModel.find({ role: { $in: ['operator', 'supervisor'] }, isActive: { $ne: false } }).select('assignedMachineIds').lean();
     const employees = floor.filter((u) => isAdmin || (u.assignedMachineIds || []).some((m: string) => scopedMachineIds.has(String(m)))).length;
 
+    // department roll-up: production summed, efficiency time-weighted — over the same window
     const deptStats = DEPARTMENTS.map((d) => {
-      const ms = views.filter((v) => v.department === d && v.state);
-      const production = ms.reduce((s, v) => s + (v.state!.production || 0), 0);
-      const efficiency = ms.length
-        ? Math.round(ms.reduce((s, v) => s + (v.state!.efficiency || 0), 0) / ms.length)
-        : 0;
-      return { dept: d as Department, machines: views.filter((v) => v.department === d).length, production, efficiency };
+      const ms = views.filter((v) => v.department === d);
+      const cums = ms.map((v) => metricByMachine.get(v.machineId) || ZERO);
+      const production = cums.reduce((s, m) => s + m.production, 0);
+      const rsec = cums.reduce((s, m) => s + m.runningSec, 0);
+      const asec = cums.reduce((s, m) => s + m.runningSec + m.idleSec + m.stoppedSec, 0);
+      return { dept: d as Department, machines: ms.length, production, efficiency: asec > 0 ? Math.round((rsec / asec) * 100) : 0 };
     }).filter((d) => d.machines > 0);
 
     const data: DashboardData = {

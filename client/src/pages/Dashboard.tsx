@@ -75,7 +75,7 @@ export default function Dashboard() {
       <div className="grid-stats-6" style={{ gap:12 }}>
         <KpiCard label={ranged ? 'Production (period)' : 'Production Today'} value={(kpi?.todayProduction ?? 0).toLocaleString()} sub={`${(kpi?.totalProduction ?? 0).toLocaleString()} total · ${kpi?.totalMachines ?? 0} machines`} accent="var(--accent-blue)" onClick={() => setKpiModal('production')} />
         <KpiCard label="Running" value={`${kpi?.running ?? 0}/${kpi?.totalMachines ?? 0}`} sub={`${kpi?.idle ?? 0} idle`} accent="var(--accent-green)" onClick={() => setKpiModal('running')} />
-        <KpiCard label="Avg Efficiency" value={`${kpi?.avgEfficiency ?? 0}%`} sub="From live" accent="var(--accent-amber)" onClick={() => setKpiModal('efficiency')} />
+        <KpiCard label="Avg Efficiency" value={`${kpi?.avgEfficiency ?? 0}%`} sub={ranged ? 'Time-weighted · period' : 'Time-weighted · today'} accent="var(--accent-amber)" onClick={() => setKpiModal('efficiency')} />
         <KpiCard label="Active Jobs" value={kpi?.activeJobs ?? 0} sub={`${kpi?.pendingJobs ?? 0} pending`} accent="var(--accent-teal)" onClick={() => setKpiModal('jobs')} />
         <KpiCard label="Employees" value={kpi?.employees ?? 0} sub="On the floor" accent="var(--accent-purple)" onClick={() => setKpiModal('employees')} />
         <KpiCard label="Alerts" value={kpi?.alerts ?? 0} sub="Stopped machines" accent="var(--accent-red)" onClick={() => setKpiModal('alerts')} />
