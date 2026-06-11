@@ -836,8 +836,8 @@ function ConfigureModal({
         )}
 
         {isDyeing ? (liveBatchDye ? (
-          // batch dyeing reporting live readings (cold-dyeing / maxi) — readings are in the
-          // snapshot above, so only the human job fields are configured here
+          // batch dyeing reporting live readings (cold-dyeing / maxi): you set the recipe TARGETS
+          // here (GLM, liquor ratio, stage); the machine's live actuals show in the snapshot above
           <>
             <div style={section}>BATCH CONFIGURATION</div>
             <div className="grid-two" style={{ gap: 12, marginBottom: 12 }}>
@@ -848,6 +848,16 @@ function ConfigureModal({
                 </select>
               </label>
             </div>
+            <div className="grid-two" style={{ gap: 12, marginBottom: 12 }}>
+              <label><div style={lbl}>GLM / Weight (kg)</div><input style={field} type="number" value={glm} onChange={(e) => setGlm(e.target.value)} placeholder="2000" /></label>
+              <label><div style={lbl}>Target Liquor Ratio</div><input style={field} value={liquorRatio} onChange={(e) => setLiquorRatio(e.target.value)} placeholder="1:8" /></label>
+            </div>
+            <label style={block}><div style={lbl}>Stage</div>
+              <select style={field} value={dyeStage} onChange={(e) => setDyeStage(e.target.value)}>
+                <option value="">— select —</option>
+                {DYE_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
             <label style={block}><div style={lbl}>Fabric Name</div>
               <input style={field} value={fabricName} onChange={(e) => setFabricName(e.target.value)} placeholder="Cotton, Cotrize…" />
             </label>
