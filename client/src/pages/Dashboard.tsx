@@ -8,7 +8,7 @@ import { KpiCard, BarRow, StatusPill, fmtDuration } from '../components/ui';
 import { Modal } from './JobTracking';
 import { ROLE_LABELS } from '../config/nav';
 import { DEPARTMENTS } from '@shared/types';
-import type { Role } from '@shared/types';
+import type { Role, MachineBreakdown } from '@shared/types';
 
 type DeptStat = { dept: string; machines: number; production: number; efficiency: number };
 type TimeMetric = 'running' | 'idle' | 'stopped' | 'downtime';
@@ -149,16 +149,16 @@ export default function Dashboard() {
       {deptModal && (
         <DeptDetailModal mode={deptModal} deptStats={deptStats} machines={machines} onClose={() => setDeptModal(null)} />
       )}
-      {timeModal && <TimeBreakdownModal metric={timeModal} machines={machines} onClose={() => setTimeModal(null)} />}
-      {kpiModal && <KpiDetailModal kind={kpiModal} machines={machines} jobs={jobs} people={people} onClose={() => setKpiModal(null)} />}
+      {timeModal && <TimeBreakdownModal metric={timeModal} breakdown={kpi?.machineBreakdown ?? []} onClose={() => setTimeModal(null)} />}
+      {kpiModal && <KpiDetailModal kind={kpiModal} breakdown={kpi?.machineBreakdown ?? []} jobs={jobs} people={people} onClose={() => setKpiModal(null)} />}
     </div>
   );
 }
 
 // ---- drill-down for the 6 top KPI cards ----
 function KpiDetailModal({
-  kind, machines, jobs, people, onClose,
-}: { kind: KpiKind; machines: MachineWithState[]; jobs: JobRow[]; people: PersonRow[]; onClose: () => void }) {
+  kind, breakdown, jobs, people, onClose,
+}: { kind: KpiKind; breakdown: MachineBreakdown[]; jobs: JobRow[]; people: PersonRow[]; onClose: () => void }) {
   // ---- Active Jobs ----
   if (kind === 'jobs') {
     const order = { inProgress: 0, pending: 1, completed: 2 } as const;
@@ -230,46 +230,46 @@ function KpiDetailModal({
     );
   }
 
-  // ---- machine-based: production / efficiency / running / alerts ----
-  let rows = machines.map((m) => ({
+  // ---- machine-based: production / efficiency / running / alerts (TODAY values) ----
+  let rows = breakdown.map((m) => ({
     code: m.code, department: m.department, status: m.status,
-    production: m.state?.production ?? 0, efficiency: m.state?.efficiency ?? 0,
-    downtime: m.state?.downtimeSec ?? ((m.state?.idleSec ?? 0) + (m.state?.stoppedSec ?? 0)),
+    today: m.production, total: m.productionTotal, efficiency: m.efficiency, downtime: m.downtimeSec,
   }));
   let title = '';
-  let highlight: 'production' | 'efficiency' | null = null;
+  let highlight: 'today' | 'efficiency' | null = null;
   if (kind === 'production') {
-    rows.sort((a, b) => b.production - a.production); title = '📦 Total Production — by machine'; highlight = 'production';
+    rows.sort((a, b) => b.today - a.today); title = '📦 Production Today — by machine'; highlight = 'today';
   } else if (kind === 'efficiency') {
-    rows.sort((a, b) => b.efficiency - a.efficiency); title = '⚡ Avg Efficiency — by machine'; highlight = 'efficiency';
+    rows.sort((a, b) => b.efficiency - a.efficiency); title = '⚡ Avg Efficiency (today) — by machine'; highlight = 'efficiency';
   } else if (kind === 'running') {
     const ord: Record<string, number> = { running: 0, idle: 1, stopped: 2, disconnected: 3 };
-    rows.sort((a, b) => (ord[a.status] ?? 9) - (ord[b.status] ?? 9) || b.production - a.production);
+    rows.sort((a, b) => (ord[a.status] ?? 9) - (ord[b.status] ?? 9) || b.today - a.today);
     title = '🟢 Machine status';
   } else {
     rows = rows.filter((r) => r.status === 'stopped' || r.status === 'disconnected').sort((a, b) => b.downtime - a.downtime);
     title = '🔔 Alerts — stopped / offline machines';
   }
-  const totalProd = rows.reduce((s, r) => s + r.production, 0);
-  const avgEff = rows.length ? Math.round(rows.reduce((s, r) => s + r.efficiency, 0) / rows.length) : 0;
+  const todayProd = rows.reduce((s, r) => s + r.today, 0);
+  const totalProd = rows.reduce((s, r) => s + r.total, 0);
   const runningCount = rows.filter((r) => r.status === 'running').length;
   const summary = kind === 'alerts'
     ? [<Mini key="a" label="Needs attention" value={String(rows.length)} />, <Mini key="b" label="Stopped" value={String(rows.filter((r) => r.status === 'stopped').length)} />, <Mini key="c" label="Offline" value={String(rows.filter((r) => r.status === 'disconnected').length)} />]
-    : [<Mini key="a" label="Machines" value={String(rows.length)} />, <Mini key="b" label="Running" value={String(runningCount)} />, kind === 'efficiency' ? <Mini key="c" label="Avg efficiency" value={`${avgEff}%`} /> : <Mini key="c" label="Total production" value={`${totalProd.toLocaleString()} mtr`} />];
+    : [<Mini key="a" label="Produced today" value={`${todayProd.toLocaleString()} mtr`} />, <Mini key="b" label="Total (lifetime)" value={`${totalProd.toLocaleString()} mtr`} />, <Mini key="c" label="Running" value={String(runningCount)} />];
   return (
     <Modal title={title} onClose={onClose}>
       <div className="grid-stats-3" style={{ gap: 10, marginBottom: 18 }}>{summary}</div>
       <table className="tbl">
-        <thead><tr><th>MACHINE</th><th>DEPARTMENT</th><th>STATUS</th><th className="r">PRODUCTION</th><th className="r">EFFICIENCY</th><th className="r">DOWNTIME</th></tr></thead>
+        <thead><tr><th>MACHINE</th><th>DEPARTMENT</th><th>STATUS</th><th className="r">TODAY</th><th className="r">TOTAL</th><th className="r">EFFICIENCY</th><th className="r">DOWNTIME</th></tr></thead>
         <tbody>
           {rows.length === 0 ? (
-            <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>{kind === 'alerts' ? 'No alerts — everything is running. 🎉' : 'No machines in your scope.'}</td></tr>
+            <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>{kind === 'alerts' ? 'No alerts — everything is running. 🎉' : 'No machines in your scope.'}</td></tr>
           ) : rows.map((r) => (
             <tr key={r.code}>
               <td className="mono" style={{ fontWeight: 700 }}>{r.code}</td>
               <td style={{ color: 'var(--text-muted)' }}>{r.department}</td>
               <td><StatusPill status={r.status} /></td>
-              <td className="r mono" style={highlight === 'production' ? { fontWeight: 800, background: 'var(--surface-2)' } : undefined}>{r.production.toLocaleString()}</td>
+              <td className="r mono" style={highlight === 'today' ? { fontWeight: 800, background: 'var(--surface-2)' } : undefined}>{r.today.toLocaleString()}</td>
+              <td className="r mono" style={{ color: 'var(--text-muted)' }}>{r.total.toLocaleString()}</td>
               <td className="r mono" style={{ color: effColor(r.efficiency), fontWeight: highlight === 'efficiency' ? 800 : 700, background: highlight === 'efficiency' ? 'var(--surface-2)' : undefined }}>{r.efficiency}%</td>
               <td className="r mono" style={{ color: r.downtime > 0 ? 'var(--stopped)' : 'var(--text-faint)' }}>{fmtDuration(r.downtime)}</td>
             </tr>
@@ -292,16 +292,10 @@ function JobStatusPill({ status }: { status: JobRow['status'] }) {
 
 // ---- per-machine time breakdown (opened by clicking a time KPI) ----
 interface TRow { code: string; department: string; status: MachineWithState['status']; running: number; idle: number; stopped: number; downtime: number }
-function TimeBreakdownModal({ metric, machines, onClose }: { metric: TimeMetric; machines: MachineWithState[]; onClose: () => void }) {
+function TimeBreakdownModal({ metric, breakdown, onClose }: { metric: TimeMetric; breakdown: MachineBreakdown[]; onClose: () => void }) {
   const meta = TIME_META[metric];
-  const rows: TRow[] = machines
-    .map((m) => {
-      const running = m.state?.runningSec || 0;
-      const idle = m.state?.idleSec || 0;
-      const stopped = m.state?.stoppedSec || 0;
-      const downtime = m.state?.downtimeSec || idle + stopped;
-      return { code: m.code, department: m.department, status: m.status, running, idle, stopped, downtime };
-    })
+  const rows: TRow[] = breakdown
+    .map((m) => ({ code: m.code, department: m.department, status: m.status, running: m.runningSec, idle: m.idleSec, stopped: m.stoppedSec, downtime: m.downtimeSec }))
     .filter((r) => r.running || r.idle || r.stopped || r.downtime)
     .sort((a, b) => b[metric] - a[metric]);
   const tot = rows.reduce(
@@ -312,7 +306,7 @@ function TimeBreakdownModal({ metric, machines, onClose }: { metric: TimeMetric;
     <td className="r mono" style={key === metric ? { color: meta.color, fontWeight: 800, background: 'var(--surface-2)' } : undefined}>{fmtDuration(v)}</td>
   );
   return (
-    <Modal title={`⏱ ${meta.label} — by machine`} onClose={onClose}>
+    <Modal title={`⏱ ${meta.label} — by machine · today`} onClose={onClose}>
       <div className="grid-stats-3" style={{ gap: 10, marginBottom: 18 }}>
         <Mini label="Machines with time" value={String(rows.length)} />
         <Mini label={meta.label} value={fmtDuration(tot[metric])} />

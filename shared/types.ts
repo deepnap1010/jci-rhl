@@ -214,6 +214,23 @@ export interface DashboardData {
   stoppedSec: number;
   downtimeSec: number; // idle + stopped
   deptStats: { dept: Department; machines: number; production: number; efficiency: number }[];
+  machineBreakdown: MachineBreakdown[]; // per-machine windowed values that drive the KPI drill-downs
+}
+
+// per-machine values for the active window (today / selected day), used by the dashboard modals
+export interface MachineBreakdown {
+  machineId: string;
+  code: string;
+  name: string;
+  department: Department;
+  status: MachineStatus;
+  production: number; // produced in the window (today)
+  productionTotal: number; // lifetime cumulative counter
+  runningSec: number;
+  idleSec: number;
+  stoppedSec: number;
+  downtimeSec: number;
+  efficiency: number; // time-weighted for the window
 }
 
 // ─── RAW PAYLOAD (ingestion truth — what machines actually send) ──

@@ -9,7 +9,7 @@ import { JobModel } from '../models/Job';
 import { UserModel } from '../models/User';
 import { TelemetryModel } from '../models/Telemetry';
 import { getScopedViews, latestByMachineInWindow } from '../lib/derive';
-import { DashboardData, DEPARTMENTS, Department } from '@shared/types';
+import { DashboardData, MachineBreakdown, DEPARTMENTS, Department } from '@shared/types';
 
 const router = Router();
 
@@ -125,6 +125,19 @@ router.get('/api/dashboard', async (req, res) => {
       return { dept: d as Department, machines: ms.length, production, efficiency: asec > 0 ? Math.round((rsec / asec) * 100) : 0 };
     }).filter((d) => d.machines > 0);
 
+    // per-machine windowed breakdown — drives the dashboard KPI drill-down modals
+    const machineBreakdown: MachineBreakdown[] = views.map((v) => {
+      const m = metricByMachine.get(v.machineId) || ZERO;
+      const active = m.runningSec + m.idleSec + m.stoppedSec;
+      return {
+        machineId: v.machineId, code: v.code, name: v.name, department: v.department, status: v.status,
+        production: m.production,
+        productionTotal: v.state?.production || 0,
+        runningSec: m.runningSec, idleSec: m.idleSec, stoppedSec: m.stoppedSec, downtimeSec: m.downtimeSec,
+        efficiency: active > 0 ? Math.round((m.runningSec / active) * 100) : 0,
+      };
+    });
+
     const data: DashboardData = {
       totalMachines: views.length,
       running,
@@ -144,6 +157,7 @@ router.get('/api/dashboard', async (req, res) => {
       stoppedSec,
       downtimeSec,
       deptStats,
+      machineBreakdown,
     };
     res.json(data);
   } catch (err) {
