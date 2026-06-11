@@ -3,9 +3,10 @@
 //  Click a machine to see its live details and reassign its
 //  operator / supervisor / shift right from here.
 // ============================================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
-import { useOperatorMap, useMachines, useJobs, usePeople } from '../hooks/useData';
+import { useOperatorMap, useMachines, useJobs, usePeople, useOrg } from '../hooks/useData';
+import type { OrgNode } from '../hooks/useData';
 import { StatusPill, Metric, inputStyle } from '../components/ui';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { useToast } from '../components/Toast';
@@ -80,17 +81,33 @@ function ControlModal({ code, onClose, onSaved }: { code: string; onClose: () =>
   const { machines } = useMachines();
   const { data: jobs } = useJobs();
   const people = usePeople();
+  const { data: org } = useOrg();
   const toast = useToast();
 
   const m = machines.find((x) => x.code === code);
   const job = jobs.find((j) => j.machineCode === code && j.status === 'inProgress') || jobs.find((j) => j.machineCode === code);
-  const operators = people.filter((e) => e.role === 'operator');
   const supervisors = people.filter((e) => e.role === 'supervisor');
 
   const [operatorId, setOperatorId] = useState('');
   const [supervisorId, setSupervisorId] = useState('');
   const [shift, setShift] = useState('A');
   const [saving, setSaving] = useState(false);
+
+  // flatten the org tree, then resolve "operators reporting to the selected supervisor"
+  const flatOrg = useMemo(() => {
+    const out: OrgNode[] = [];
+    const walk = (ns: OrgNode[]) => ns.forEach((n) => { out.push(n); walk(n.children); });
+    walk(org.nodes);
+    return out;
+  }, [org.nodes]);
+  const operatorsUnder = useMemo(() => {
+    const node = supervisorId ? flatOrg.find((n) => n.id === supervisorId) : null;
+    if (!node) return [] as { _id: string; name: string }[];
+    const ops: { _id: string; name: string }[] = [];
+    const walk = (ns: OrgNode[]) => ns.forEach((n) => { if (n.role === 'operator') ops.push({ _id: n.id, name: n.name }); walk(n.children); });
+    walk(node.children);
+    return ops;
+  }, [supervisorId, flatOrg]);
 
   // sync controls once the matching job is available
   useEffect(() => {
@@ -150,16 +167,23 @@ function ControlModal({ code, onClose, onSaved }: { code: string; onClose: () =>
 
         {/* operator control */}
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', color: 'var(--brand)', margin: '4px 0 10px' }}>OPERATOR CONTROL</div>
-        <label style={block}><div style={lbl}>Operator</div>
-          <select style={field} value={operatorId} onChange={(e) => setOperatorId(e.target.value)} disabled={!canAssign}>
-            <option value="">— Select operator —</option>
-            {operators.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
-          </select>
-        </label>
         <label style={block}><div style={lbl}>Supervisor</div>
-          <select style={field} value={supervisorId} onChange={(e) => setSupervisorId(e.target.value)} disabled={!canAssign}>
+          <select
+            style={field}
+            value={supervisorId}
+            onChange={(e) => { setSupervisorId(e.target.value); setOperatorId(''); }} // clear operator — must belong to the new supervisor
+            disabled={!canAssign}
+          >
             <option value="">— Select supervisor —</option>
             {supervisors.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
+          </select>
+        </label>
+        <label style={block}><div style={lbl}>↳ Operator</div>
+          <select style={field} value={operatorId} onChange={(e) => setOperatorId(e.target.value)} disabled={!canAssign || !supervisorId || operatorsUnder.length === 0}>
+            <option value="">
+              {!supervisorId ? '— select a supervisor first —' : operatorsUnder.length ? '— Select operator —' : 'No operators report to this supervisor'}
+            </option>
+            {operatorsUnder.map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
           </select>
         </label>
         <label style={block}><div style={lbl}>Shift</div>
