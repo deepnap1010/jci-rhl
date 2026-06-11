@@ -11,11 +11,15 @@ import { KpiCard, StatusPill, fmtDuration, inputStyle } from '../components/ui';
 import { api } from '../api/client';
 import { DEPARTMENTS } from '@shared/types';
 
+// card ordering for the downtime view
+const STATUS_ORDER: Record<string, number> = { stopped: 0, idle: 1, running: 2, disconnected: 3 };
+
 export default function Downtime() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [dept, setDept] = useState('');
   const [status, setStatus] = useState('');
+  const [sort, setSort] = useState('downtime'); // worst offenders first by default
 
   // build the query string from the filters
   const qs = (() => {
@@ -36,6 +40,14 @@ export default function Downtime() {
   const { cards, kpis } = data;
   const filtered = !!(dateFrom || dateTo || dept || status);
   const rangeNote = dateFrom || dateTo ? 'in range' : '24h';
+
+  const down = (m: Card) => (m.idleSec || 0) + (m.stoppedSec || 0);
+  const sortedCards = [...cards].sort((a, b) => {
+    if (sort === 'occurrences') return (b.eventCount || 0) - (a.eventCount || 0) || a.code.localeCompare(b.code);
+    if (sort === 'status') return (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.code.localeCompare(b.code);
+    if (sort === 'name') return a.code.localeCompare(b.code);
+    return down(b) - down(a) || a.code.localeCompare(b.code); // 'downtime' (default): most idle+stopped first
+  });
 
   return (
     <div style={{ padding: '0 28px 40px' }}>
@@ -65,6 +77,14 @@ export default function Downtime() {
             <option value="disconnected">Disconnected</option>
           </select>
         </Lbl>
+        <Lbl label="Sort">
+          <select style={ctrl} value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="downtime">Most downtime</option>
+            <option value="occurrences">Most occurrences</option>
+            <option value="status">Status (stopped first)</option>
+            <option value="name">Name</option>
+          </select>
+        </Lbl>
         <span style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 9 }}>Showing {cards.length} machine{cards.length === 1 ? '' : 's'}</span>
         {filtered && (
           <button onClick={() => { setDateFrom(''); setDateTo(''); setDept(''); setStatus(''); }}
@@ -78,7 +98,7 @@ export default function Downtime() {
         {cards.length === 0 ? (
           <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No machines match these filters.</div>
         ) : (
-          cards.map((m) => <DowntimeCardView key={m._id} m={m} />)
+          sortedCards.map((m) => <DowntimeCardView key={m._id} m={m} />)
         )}
       </div>
     </div>
