@@ -190,9 +190,6 @@ export interface JobRow {
   glm: number;
   liquorRatio: string;
   dyeStage: string;
-  targetSteamPressure: number;
-  targetChamberTemp: number;
-  targetDwellTime: number;
   shift: string;
 }
 

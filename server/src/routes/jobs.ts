@@ -84,9 +84,6 @@ router.get('/api/jobs', async (req, res) => {
         glm: j.glm || 0,
         liquorRatio: j.liquorRatio || '',
         dyeStage: j.dyeStage || '',
-        targetSteamPressure: j.targetSteamPressure || 0,
-        targetChamberTemp: j.targetChamberTemp || 0,
-        targetDwellTime: j.targetDwellTime || 0,
         shift: j.shift || 'A',
       };
     });
@@ -160,9 +157,6 @@ router.put('/api/jobs/by-machine/:machineId', async (req, res) => {
       glm: Number(b.glm) || 0,
       liquorRatio: b.liquorRatio ? String(b.liquorRatio) : '',
       dyeStage: b.dyeStage ? String(b.dyeStage) : '',
-      targetSteamPressure: Number(b.targetSteamPressure) || 0,
-      targetChamberTemp: Number(b.targetChamberTemp) || 0,
-      targetDwellTime: Number(b.targetDwellTime) || 0,
       shift: b.shift || 'A',
     };
     // one job per machine: update in place (keep its number), else create with an auto number
