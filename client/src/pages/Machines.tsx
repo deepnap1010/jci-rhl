@@ -726,6 +726,14 @@ function ConfigureModal({
   // dyeing machines (maxi / jet / soft-flow / cold-dyeing) get the batch layout; every other
   // machine just assigns a job — its real process values show in the CURRENT READINGS snapshot.
   const isDyeing = isDyeingMachine(type, m.department, m.code);
+  // cold-dyeing / maxi report live batch readings (turns, dye dosed, liquor ratio, bath temp) —
+  // those are shown in the snapshot, so their Configure only needs the human job fields, not the
+  // soft-flow loaded-fabric recipe (GLM / liquor ratio / stage manual inputs).
+  const liveBatchDye = isDyeing && (
+    dataNum(m.state?.data, ['turns']) != null ||
+    dataNum(m.state?.data, ['dyeDosed', 'dyeDosing']) != null ||
+    ((dataNum(m.state?.data, ['production', 'fabricLength', 'length']) ?? 0) > 0)
+  );
 
   const [batchId, setBatchId] = useState(job?.batchId ?? '');
   const [processType, setProcessType] = useState(job?.processType || (isDyeing ? 'Dyeing' : ''));
@@ -776,7 +784,7 @@ function ConfigureModal({
         supervisorId: supervisorId || null,
         batchId: isDyeing ? batchId : '',
         processType: isDyeing ? processType : '',
-        loadedAt: isDyeing ? (job?.loadedAt ?? new Date().toISOString()) : null,
+        loadedAt: (isDyeing && !liveBatchDye) ? (job?.loadedAt ?? new Date().toISOString()) : null,
         glm: isDyeing ? Number(glm) || 0 : 0,
         liquorRatio: isDyeing ? liquorRatio : '',
         dyeStage: isDyeing ? dyeStage : '',
@@ -827,7 +835,29 @@ function ConfigureModal({
           </div>
         )}
 
-        {isDyeing ? (
+        {isDyeing ? (liveBatchDye ? (
+          // batch dyeing reporting live readings (cold-dyeing / maxi) — readings are in the
+          // snapshot above, so only the human job fields are configured here
+          <>
+            <div style={section}>BATCH CONFIGURATION</div>
+            <div className="grid-two" style={{ gap: 12, marginBottom: 12 }}>
+              <label><div style={lbl}>Batch ID</div><input style={field} value={batchId} onChange={(e) => setBatchId(e.target.value)} placeholder="01" /></label>
+              <label><div style={lbl}>Process Type</div>
+                <select style={field} value={processType} onChange={(e) => setProcessType(e.target.value)}>
+                  {PROCESS_TYPES.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </label>
+            </div>
+            <label style={block}><div style={lbl}>Fabric Name</div>
+              <input style={field} value={fabricName} onChange={(e) => setFabricName(e.target.value)} placeholder="Cotton, Cotrize…" />
+            </label>
+            <label style={block}><div style={lbl}>Target Production (meters)</div>
+              <input style={field} type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="8000" />
+            </label>
+            <div style={{ borderTop: '1px dashed var(--border)', margin: '4px 0 16px' }} />
+          </>
+        ) : (
+          // soft-flow / loaded-fabric batch (no live telemetry) — the loaded-batch recipe
           <>
             <div style={section}>BATCH CONFIGURATION</div>
             <div className="grid-two" style={{ gap: 12, marginBottom: 12 }}>
@@ -863,7 +893,7 @@ function ConfigureModal({
             )}
             <div style={{ borderTop: '1px dashed var(--border)', margin: '4px 0 16px' }} />
           </>
-        ) : (
+        )) : (
           <>
             <label style={block}><div style={lbl}>Fabric Name</div>
               <input style={field} value={fabricName} onChange={(e) => setFabricName(e.target.value)} placeholder="Cotrize" />
