@@ -81,12 +81,16 @@ router.get('/api/dashboard', async (req, res) => {
       const baseDoc = await TelemetryModel.findOne({ machineId: v.machineId, serverTs: { $lt: winStart } }, { data: 1 })
         .sort({ serverTs: -1 }).lean();
       const base = baseDoc ? cumFromData((baseDoc as { data?: Record<string, unknown> }).data) : ZERO;
+      // reset-aware delta: counters reset to 0 mid-day (CBR-02's runningSeconds went 15716→7831).
+      // When the current value dropped below the baseline, the counter reset, so the window's
+      // value is what's accumulated since the reset (≈ the current value), not a clamped 0.
+      const delta = (e: number, b: number) => Math.max(0, e >= b ? e - b : e);
       metricByMachine.set(v.machineId, {
-        production: Math.max(0, end.production - base.production),
-        runningSec: Math.max(0, end.runningSec - base.runningSec),
-        idleSec: Math.max(0, end.idleSec - base.idleSec),
-        stoppedSec: Math.max(0, end.stoppedSec - base.stoppedSec),
-        downtimeSec: Math.max(0, end.downtimeSec - base.downtimeSec),
+        production: delta(end.production, base.production),
+        runningSec: delta(end.runningSec, base.runningSec),
+        idleSec: delta(end.idleSec, base.idleSec),
+        stoppedSec: delta(end.stoppedSec, base.stoppedSec),
+        downtimeSec: delta(end.downtimeSec, base.downtimeSec),
       });
     }));
 
