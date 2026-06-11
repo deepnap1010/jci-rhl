@@ -7,10 +7,43 @@
 import { Router } from 'express';
 import { JobModel } from '../models/Job';
 import { UserModel } from '../models/User';
+import { TelemetryModel } from '../models/Telemetry';
 import { getScopedViews, latestByMachineInWindow } from '../lib/derive';
 import { DashboardData, DEPARTMENTS, Department } from '@shared/types';
 
 const router = Router();
+
+// production counters are cumulative; output over a window = (counter at window end) − (counter at start).
+// "start" = the last reading before the window; if none (machine first seen inside it), the window's
+// earliest reading. Clamped at 0 so a counter reset/rollover can't make a window go negative.
+function asNum(x: unknown): number | null {
+  if (typeof x === 'number' && !isNaN(x)) return x;
+  if (typeof x === 'string' && x.trim() !== '' && !isNaN(Number(x))) return Number(x);
+  return null;
+}
+async function windowProduction(ids: string[], winStart: Date, winEnd: Date): Promise<number> {
+  const proj = { 'data.production': 1, 'data.fabricLength': 1 } as const;
+  const prodOf = (d: { data?: Record<string, unknown> } | null): number | null =>
+    d ? (asNum(d.data?.production) ?? asNum(d.data?.fabricLength)) : null;
+  const per = await Promise.all(
+    ids.map(async (id) => {
+      const [endDoc, baseDoc] = await Promise.all([
+        TelemetryModel.findOne({ machineId: id, serverTs: { $lte: winEnd } }, proj).sort({ serverTs: -1 }).lean(),
+        TelemetryModel.findOne({ machineId: id, serverTs: { $lt: winStart } }, proj).sort({ serverTs: -1 }).lean(),
+      ]);
+      const end = prodOf(endDoc as never);
+      if (end == null) return 0;
+      let start = prodOf(baseDoc as never);
+      if (start == null) {
+        const firstDoc = await TelemetryModel.findOne({ machineId: id, serverTs: { $gte: winStart, $lte: winEnd } }, proj).sort({ serverTs: 1 }).lean();
+        start = prodOf(firstDoc as never);
+      }
+      if (start == null) return 0;
+      return Math.max(0, end - start);
+    })
+  );
+  return per.reduce((s, x) => s + x, 0);
+}
 
 router.get('/api/dashboard', async (req, res) => {
   try {
@@ -27,6 +60,14 @@ router.get('/api/dashboard', async (req, res) => {
 
     const withState = views.filter((v) => v.state);
     const totalProduction = withState.reduce((s, v) => s + (v.state!.production || 0), 0);
+
+    // production within the active window: the selected day range, or "today" (from the
+    // client's local midnight in ?dayStart=) up to now for the live view.
+    const ds = req.query.dayStart ? new Date(String(req.query.dayStart)) : null;
+    const winStart = range ? range.from : (ds && !isNaN(ds.getTime()) ? ds : null);
+    const winEnd = range ? range.to : new Date();
+    const todayProduction = winStart ? await windowProduction(views.map((v) => v.machineId), winStart, winEnd) : 0;
+
     const avgEfficiency = withState.length
       ? Math.round(withState.reduce((s, v) => s + (v.state!.efficiency || 0), 0) / withState.length)
       : 0;
@@ -62,6 +103,7 @@ router.get('/api/dashboard', async (req, res) => {
       idle,
       stopped,
       totalProduction,
+      todayProduction,
       avgEfficiency,
       activeJobs: jobs.filter((j) => j.status === 'inProgress').length,
       alerts: stopped,

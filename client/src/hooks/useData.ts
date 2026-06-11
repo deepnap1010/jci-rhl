@@ -95,8 +95,12 @@ export function useDashboard(from?: string, to?: string) {
 
   const load = useCallback(async (force = false) => {
     try {
-      const qs = from && to ? '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) : '';
-      const data = await cachedGet<DashboardData>('/api/dashboard' + qs, { force });
+      const p = new URLSearchParams();
+      if (from && to) { p.set('from', from); p.set('to', to); }
+      // local midnight today → server computes "today's production" (counter delta) for the live view
+      const ds = new Date(); ds.setHours(0, 0, 0, 0);
+      p.set('dayStart', ds.toISOString());
+      const data = await cachedGet<DashboardData>('/api/dashboard?' + p.toString(), { force });
       setData(data);
     } catch {
       setData(null);

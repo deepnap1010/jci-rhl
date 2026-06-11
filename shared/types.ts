@@ -199,7 +199,8 @@ export interface DashboardData {
   running: number;
   idle: number;
   stopped: number;
-  totalProduction: number;
+  totalProduction: number; // sum of each machine's current cumulative counter
+  todayProduction: number; // produced within the active window (today, or the selected day) — counter delta
   avgEfficiency: number;
   activeJobs: number;
   alerts: number;
