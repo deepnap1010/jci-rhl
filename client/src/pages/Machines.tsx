@@ -800,9 +800,28 @@ function ConfigureModal({
         </div>
 
         {/* machine identity bar */}
-        <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--text-muted)' }}>
+        <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
           <b className="mono" style={{ color: 'var(--text)' }}>{m.code}</b> · {type || '—'} · {m.department} · PLC:
         </div>
+
+        {/* live snapshot — the machine's current relevant readings, adapted to its type */}
+        {m.state && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', color: 'var(--text-faint)' }}>CURRENT READINGS</span>
+              <StatusPill status={m.status} />
+              {m.status === 'disconnected' && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>· last seen</span>}
+            </div>
+            <div className="grid-stats-4" style={{ gap: 8 }}>
+              {snapshotTiles(m).map((t) => (
+                <div key={t.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)' }}>{t.label.toUpperCase()}</div>
+                  <div className="mono" style={{ fontSize: 14, fontWeight: 700 }}>{t.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {isDyeing ? (
           <>
@@ -978,6 +997,57 @@ function dynamicMetricTiles(data?: Record<string, unknown> | null, limit = 6): {
     out.push({ label: humanizeKey(key), value: Number.isInteger(v) ? String(v) : v.toFixed(2) });
   }
   return out;
+}
+
+// the 4 most relevant CURRENT readings for a machine — adapts to its family, mirroring the card
+function snapshotTiles(m: MachineWithState): { label: string; value: string }[] {
+  const d = m.state?.data;
+  const n = (keys: string[], k = false): string => {
+    const v = dataNum(d, keys);
+    return v == null ? '—' : k ? fmtK(v) : Number.isInteger(v) ? String(v) : v.toFixed(1);
+  };
+  const liquor = dataNum(d, ['liquorRatio']);
+  const liquorStr = liquor && liquor > 0 ? `1:${liquor}` : '—';
+  if (isReactiveSteamer(m.machineType?.name, m.department, m.code)) {
+    return [
+      { label: 'Length / Prod', value: n(['length_Production', 'lengthProduction', 'length', 'production'], true) },
+      { label: 'Fabric Speed', value: n(['fabricSpeed', 'speed']) },
+      { label: 'Chamber Temp', value: n(['chamberTemperature']) },
+      { label: 'Steam Pressure', value: n(['steamPressure']) },
+    ];
+  }
+  if (isDyeingMachine(m.machineType?.name, m.department, m.code)) {
+    const turns = dataNum(d, ['turns']);
+    const dyeDosed = dataNum(d, ['dyeDosed', 'dyeDosing']);
+    const prod = dataNum(d, ['production', 'fabricLength', 'length']);
+    if (turns != null || dyeDosed != null || (prod != null && prod > 0)) {
+      return [
+        { label: 'Production', value: n(['production', 'fabricLength', 'length'], true) },
+        { label: 'Bath Temp', value: n(['bathTemp', 'temperature', 'temp']) },
+        { label: 'Liquor Ratio', value: liquorStr },
+        { label: 'Turns', value: n(['turns']) },
+      ];
+    }
+    return [
+      { label: 'Stage', value: typeof d?.stage === 'string' ? (d.stage as string) : '—' },
+      { label: 'Liquor Ratio', value: liquorStr },
+      { label: 'Temperature', value: n(['actualTemp', 'liquorTemp', 'bathTemp', 'temperature']) },
+      { label: 'Reel Speed', value: n(['reelSpeed', 'speed']) },
+    ];
+  }
+  const prod = dataNum(d, ['production', 'fabricLength', 'length', 'counter']);
+  const speed = dataNum(d, ['speed', 'machineSpeed', 'fabricSpeed']);
+  const temp = dataNum(d, ['temperature', 'temp', 'bathTemp']);
+  const water = dataNum(d, ['waterLPH', 'waterFlow', 'water', 'mainWaterTotal', 'flow', 'steamFlowTotal']);
+  if ([prod, speed, temp, water].filter((x) => x != null && x !== 0).length >= 2) {
+    return [
+      { label: 'Production', value: prod == null ? '—' : fmtK(prod) },
+      { label: 'Speed', value: speed == null ? '—' : String(speed) },
+      { label: 'Temperature', value: temp == null ? '—' : Number.isInteger(temp) ? String(temp) : temp.toFixed(1) },
+      { label: 'Water', value: water == null ? '—' : fmtK(water) },
+    ];
+  }
+  return dynamicMetricTiles(d, 4);
 }
 
 // "15 Apr 2026, 03:37 pm" — when fabric was loaded
