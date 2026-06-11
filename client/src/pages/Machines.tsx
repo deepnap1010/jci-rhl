@@ -59,7 +59,7 @@ export default function Machines() {
   const [q, setQ] = useState('');
   const [dept, setDept] = useState('');
   const [status, setStatus] = useState('');
-  const [sort, setSort] = useState('status');
+  const [sort, setSort] = useState('name'); // fixed order by default so cards don't jump on status change
   const [page, setPage] = useState(1);
   // deep-link from a notification (?focus=CBR-01) → pre-fill the search
   const [sp] = useSearchParams();
@@ -133,8 +133,8 @@ export default function Machines() {
           <option value="disconnected">Disconnected</option>
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value)} style={input} title="Sort by">
+          <option value="name">Sort: Name (fixed order)</option>
           <option value="status">Sort: Status (running first)</option>
-          <option value="name">Sort: Name</option>
           <option value="production">Sort: Production ↓</option>
           <option value="efficiency">Sort: Efficiency ↑</option>
         </select>
