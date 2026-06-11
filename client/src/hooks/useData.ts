@@ -544,6 +544,8 @@ export const useElectricity = (from?: string, to?: string) =>
     deptWise: { dept: string; kwh: number }[];
     hourly: { label: string; kw: number }[];
     machines: { code: string; type: string; department: string; kw: number; kwhToday: number }[];
-  }>('/api/electricity' + (from && to ? '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) : ''), { kpis: { todayKwh: 0, peakLoadKw: 0, powerFactor: 0, costToday: 0 }, deptWise: [], hourly: [], machines: [] });
+    days: number;
+    ranged: boolean;
+  }>('/api/electricity' + (from && to ? '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) : ''), { kpis: { todayKwh: 0, peakLoadKw: 0, powerFactor: 0, costToday: 0 }, deptWise: [], hourly: [], machines: [], days: 1, ranged: false });
 export const useOperatorMap = (by: 'operator' | 'supervisor') =>
   useEndpoint<{ by: string; groups: OperatorGroup[] }>(`/api/operator-map?by=${by}`, { by, groups: [] });

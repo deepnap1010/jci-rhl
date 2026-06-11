@@ -94,6 +94,12 @@ router.get('/api/electricity', async (req, res) => {
       return m ? Math.round(m.speed * 1.6 + m.waterFlow * 0.01 + m.production * 0.0005 + 12) : 0;
     };
 
+    // energy (kWh) = load (kW) × operating hours. A date range covers N days, so the period total
+    // scales by the number of days (power/kW stays instantaneous; energy/kWh accumulates).
+    const HOURS_PER_DAY = 8;
+    const days = range ? Math.floor((range.to.getTime() - range.from.getTime()) / 864e5) + 1 : 1;
+    const energyHrs = HOURS_PER_DAY * days;
+
     const deptMap = new Map<Department, number>();
     let peakLoadKw = 0;
     let totalLoadKw = 0;
@@ -101,10 +107,10 @@ router.get('/api/electricity', async (req, res) => {
       const load = loadOf(v);
       peakLoadKw = Math.max(peakLoadKw, load);
       totalLoadKw += load;
-      deptMap.set(v.department, (deptMap.get(v.department) || 0) + load * 8);
+      deptMap.set(v.department, (deptMap.get(v.department) || 0) + load * energyHrs);
     }
     const deptWise = DEPARTMENTS.map((d) => ({ dept: d, kwh: Math.round(deptMap.get(d) || 0) })).filter((x) => x.kwh > 0);
-    const todayKwh = Math.round(deptWise.reduce((s, d) => s + d.kwh, 0));
+    const totalKwh = Math.round(deptWise.reduce((s, d) => s + d.kwh, 0));
 
     const SHAPE = [0.48, 0.78, 0.92, 1.0, 1.0, 0.96, 0.86, 0.93, 0.95, 0.9];
     const LABELS = ['6AM', '8AM', '9AM', '10AM', '11AM', '12PM', '1PM', '2PM', '3PM', 'NOW'];
@@ -112,14 +118,16 @@ router.get('/api/electricity', async (req, res) => {
 
     // all scoped machines (searchable on the page), highest consumer first
     const machines = views
-      .map((v) => { const kw = loadOf(v); return { code: v.code, type: v.type, department: v.department, kw, kwhToday: kw * 8 }; })
+      .map((v) => { const kw = loadOf(v); return { code: v.code, type: v.type, department: v.department, kw, kwhToday: kw * energyHrs }; })
       .sort((a, b) => b.kw - a.kw);
 
     res.json({
-      kpis: { todayKwh, peakLoadKw, powerFactor: 0.92, costToday: Math.round(todayKwh * 8.5) },
+      kpis: { todayKwh: totalKwh, peakLoadKw, powerFactor: 0.92, costToday: Math.round(totalKwh * 8.5) },
       deptWise,
       hourly,
       machines,
+      days,
+      ranged: !!range,
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load electricity data' });
