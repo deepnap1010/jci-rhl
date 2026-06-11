@@ -21,27 +21,57 @@ const router = Router();
 type Cum = { production: number; runningSec: number; idleSec: number; stoppedSec: number; downtimeSec: number };
 const ZERO: Cum = { production: 0, runningSec: 0, idleSec: 0, stoppedSec: 0, downtimeSec: 0 };
 
-function asNum(x: unknown): number | null {
-  if (typeof x === 'number' && !isNaN(x)) return x;
-  if (typeof x === 'string' && x.trim() !== '' && !isNaN(Number(x))) return Number(x);
-  return null;
-}
-function pick(data: Record<string, unknown> | undefined, keys: string[]): number {
-  if (!data) return 0;
-  for (const k of keys) { const v = asNum(data[k]); if (v != null) return v; }
-  return 0;
-}
-// cumulative counters out of a raw telemetry blob (the day-start baseline)
-function cumFromData(data?: Record<string, unknown>): Cum {
-  const idleSec = pick(data, ['idleSeconds']);
-  const stoppedSec = pick(data, ['stoppedSeconds']);
-  return {
-    production: pick(data, ['production', 'fabricLength', 'counter']),
-    runningSec: pick(data, ['runningSeconds']),
-    idleSec,
-    stoppedSec,
-    downtimeSec: pick(data, ['downtimeSeconds']) || idleSec + stoppedSec,
-  };
+// Window total = SUM of per-day deltas. A single (end−start) delta over a multi-day range is wrong
+// because counters reset several times inside the window (so a 6-day range came out < one day).
+// Per day we take the last reading and diff it against the prior day's last (reset-aware: a counter
+// that dropped below the previous value reset, so that day's value is the post-reset reading).
+const cv = (input: unknown) => ({ $convert: { input, to: 'double', onError: 0, onNull: 0 } });
+const lastOf = (input: unknown) => ({ $top: { sortBy: { serverTs: -1 }, output: cv(input) } });
+const COUNTERS = {
+  prod: { $ifNull: ['$data.production', '$data.fabricLength'] },
+  run: '$data.runningSeconds', idle: '$data.idleSeconds', stop: '$data.stoppedSeconds',
+};
+type DayRow = { _id: { m: string; d: Date }; prod: number; run: number; idle: number; stop: number };
+type BaseRow = { _id: string; prod: number; run: number; idle: number; stop: number };
+
+async function windowMetrics(ids: string[], from: Date, to: Date): Promise<Map<string, Cum>> {
+  const project = { prod: lastOf(COUNTERS.prod), run: lastOf(COUNTERS.run), idle: lastOf(COUNTERS.idle), stop: lastOf(COUNTERS.stop) };
+  // last reading per (machine, IST day) within the window + last reading just before the window
+  const [dayRows, baseRows] = await Promise.all([
+    TelemetryModel.aggregate([
+      { $match: { machineId: { $in: ids }, serverTs: { $gte: from, $lte: to } } },
+      { $group: { _id: { m: '$machineId', d: { $dateTrunc: { date: '$serverTs', unit: 'day', timezone: 'Asia/Kolkata' } } }, ...project } },
+      { $sort: { '_id.d': 1 } },
+    ]) as Promise<DayRow[]>,
+    TelemetryModel.aggregate([
+      { $match: { machineId: { $in: ids }, serverTs: { $gte: new Date(from.getTime() - 3 * 864e5), $lt: from } } },
+      { $group: { _id: '$machineId', ...project } },
+    ]) as Promise<BaseRow[]>,
+  ]);
+
+  const baseBy = new Map<string, Cum>();
+  for (const b of baseRows) baseBy.set(String(b._id), { production: b.prod || 0, runningSec: b.run || 0, idleSec: b.idle || 0, stoppedSec: b.stop || 0, downtimeSec: 0 });
+  const daysByMachine = new Map<string, DayRow[]>();
+  for (const r of dayRows) { const m = String(r._id.m); (daysByMachine.get(m) ?? daysByMachine.set(m, []).get(m)!).push(r); }
+
+  const d = (cur: number, prev: number) => Math.max(0, cur >= prev ? cur - prev : cur); // reset-aware
+  const out = new Map<string, Cum>();
+  for (const id of ids) {
+    let prev = baseBy.get(id) ?? ZERO;
+    const acc: Cum = { production: 0, runningSec: 0, idleSec: 0, stoppedSec: 0, downtimeSec: 0 };
+    for (const r of daysByMachine.get(id) ?? []) {
+      const cur: Cum = { production: r.prod || 0, runningSec: r.run || 0, idleSec: r.idle || 0, stoppedSec: r.stop || 0, downtimeSec: 0 };
+      const idleD = d(cur.idleSec, prev.idleSec), stopD = d(cur.stoppedSec, prev.stoppedSec);
+      acc.production += d(cur.production, prev.production);
+      acc.runningSec += d(cur.runningSec, prev.runningSec);
+      acc.idleSec += idleD;
+      acc.stoppedSec += stopD;
+      acc.downtimeSec += idleD + stopD; // downtime ≡ idle + stopped
+      prev = cur;
+    }
+    out.set(id, acc);
+  }
+  return out;
 }
 
 router.get('/api/dashboard', async (req, res) => {
@@ -62,37 +92,20 @@ router.get('/api/dashboard', async (req, res) => {
     const totalProduction = withState.reduce((s, v) => s + (v.state!.production || 0), 0);
 
     // active window: a selected day range, or "today" (client's local midnight in ?dayStart=)
-    // up to now for the live view. v.state already holds the counter at the window's latest reading.
+    // up to now for the live view.
     const ds = req.query.dayStart ? new Date(String(req.query.dayStart)) : null;
     const winStart = range ? range.from : (ds && !isNaN(ds.getTime()) ? ds : null);
+    const winEnd = range ? range.to : new Date();
 
-    // per-machine windowed delta = latest counters − counters just before the window started
-    const metricByMachine = new Map<string, Cum>();
-    await Promise.all(views.map(async (v) => {
-      if (!v.state) { metricByMachine.set(v.machineId, ZERO); return; }
-      const end: Cum = {
-        production: v.state.production || 0,
-        runningSec: v.state.runningSec || 0,
-        idleSec: v.state.idleSec || 0,
-        stoppedSec: v.state.stoppedSec || 0,
-        downtimeSec: v.state.downtimeSec || 0,
-      };
-      if (!winStart) { metricByMachine.set(v.machineId, end); return; } // no window → lifetime totals
-      const baseDoc = await TelemetryModel.findOne({ machineId: v.machineId, serverTs: { $lt: winStart } }, { data: 1 })
-        .sort({ serverTs: -1 }).lean();
-      const base = baseDoc ? cumFromData((baseDoc as { data?: Record<string, unknown> }).data) : ZERO;
-      // reset-aware delta: counters reset to 0 mid-day (CBR-02's runningSeconds went 15716→7831).
-      // When the current value dropped below the baseline, the counter reset, so the window's
-      // value is what's accumulated since the reset (≈ the current value), not a clamped 0.
-      const delta = (e: number, b: number) => Math.max(0, e >= b ? e - b : e);
-      metricByMachine.set(v.machineId, {
-        production: delta(end.production, base.production),
-        runningSec: delta(end.runningSec, base.runningSec),
-        idleSec: delta(end.idleSec, base.idleSec),
-        stoppedSec: delta(end.stoppedSec, base.stoppedSec),
-        downtimeSec: delta(end.downtimeSec, base.downtimeSec),
-      });
-    }));
+    // per-machine windowed metrics = sum of positive counter increments over the window (handles
+    // the daily/intra-day counter resets, so a multi-day range = the sum of its days).
+    const ids = views.map((v) => v.machineId);
+    const metricByMachine = winStart
+      ? await windowMetrics(ids, winStart, winEnd)
+      : new Map(views.filter((v) => v.state).map((v) => [v.machineId, { // no window → lifetime totals
+          production: v.state!.production || 0, runningSec: v.state!.runningSec || 0, idleSec: v.state!.idleSec || 0,
+          stoppedSec: v.state!.stoppedSec || 0, downtimeSec: v.state!.downtimeSec || 0,
+        } as Cum]));
 
     // aggregate the windowed metrics across the scoped fleet
     let todayProduction = 0, runningSec = 0, idleSec = 0, stoppedSec = 0, downtimeSec = 0;
