@@ -6,7 +6,7 @@
 //  range (from telemetry history) instead of the live snapshot.
 // ============================================================
 import { Router } from 'express';
-import { getScopedViews, deriveView, MachineView, MachineDoc, TelemetryDoc } from '../lib/derive';
+import { getScopedViews, MachineView } from '../lib/derive';
 import { TelemetryModel } from '../models/Telemetry';
 import { DEPARTMENTS, Department } from '@shared/types';
 
@@ -14,23 +14,27 @@ const router = Router();
 
 type RangeAvg = { waterFlow: number; speed: number; production: number };
 
-// average derived metrics per machine over a date range (history-based)
+// Average the (alias-coalesced) raw fields per machine over the WHOLE date range, server-side.
+// The old version pulled only the 8000 most-recent readings, so a multi-day range reflected just
+// the last day — this $avg covers every reading between the two dates.
 async function rangeAverages(views: MachineView[], from: Date, to: Date): Promise<Map<string, RangeAvg>> {
   const ids = views.map((v) => v.machineId);
-  const typeBy = new Map(views.map((v) => [v.machineId, v.type]));
-  const docs = await TelemetryModel.find({ machineId: { $in: ids }, serverTs: { $gte: from, $lte: to } })
-    .sort({ serverTs: -1 }).limit(8000).lean();
-  const agg = new Map<string, { w: number; s: number; p: number; n: number }>();
-  for (const d of docs) {
-    const view = deriveView({ machineId: d.machineId, type: typeBy.get(d.machineId) } as MachineDoc, d as unknown as TelemetryDoc);
-    const st = view.state;
-    if (!st) continue;
-    const a = agg.get(d.machineId) || { w: 0, s: 0, p: 0, n: 0 };
-    a.w += st.waterFlow; a.s += st.speed; a.p += st.production; a.n++;
-    agg.set(d.machineId, a);
-  }
+  // first non-null of the field aliases a machine type might use (mirrors deriveView's picks)
+  const coalesce = (fields: string[]): unknown => fields.reduceRight<unknown>((acc, f) => ({ $ifNull: [`$data.${f}`, acc] }), 0);
+  const avgNum = (fields: string[]) => ({ $avg: { $convert: { input: coalesce(fields), to: 'double', onError: 0, onNull: 0 } } });
+  const rows = await TelemetryModel.aggregate([
+    { $match: { machineId: { $in: ids }, serverTs: { $gte: from, $lte: to } } },
+    { $group: {
+        _id: '$machineId',
+        waterFlow: avgNum(['waterFlow', 'flow', 'waterLPH', 'waterLph']),
+        speed: avgNum(['fabricSpeed', 'speed', 'reelSpeed']),
+        production: avgNum(['production', 'fabricLength', 'length_Production', 'counter']),
+    } },
+  ]);
   const out = new Map<string, RangeAvg>();
-  for (const [id, a] of agg) out.set(id, { waterFlow: a.w / a.n, speed: a.s / a.n, production: a.p / a.n });
+  for (const r of rows as { _id: unknown; waterFlow: number; speed: number; production: number }[]) {
+    out.set(String(r._id), { waterFlow: r.waterFlow || 0, speed: r.speed || 0, production: r.production || 0 });
+  }
   return out;
 }
 
