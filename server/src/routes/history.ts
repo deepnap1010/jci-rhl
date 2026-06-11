@@ -106,6 +106,12 @@ router.get('/api/history', async (req, res) => {
     if (req.query.to) ts.$lte = new Date(String(req.query.to));
     if (Object.keys(ts).length) filter.serverTs = ts;
 
+    // counts-only mode: the running/downtime breakdown ($group over the whole set) is the slow
+    // part, so the client fetches it separately and never lets it block the table render.
+    if (req.query.breakdown === '1') {
+      return res.json(await statusCounts(filter));
+    }
+
     const limit = Math.min(Number(req.query.limit) || 300, 1000);
     // opt-in: include each reading's raw PLC payload (used by the drill-down modal)
     const withData = req.query.withData === '1' || req.query.withData === 'true';
@@ -133,16 +139,15 @@ router.get('/api/history', async (req, res) => {
     } else if (paginated) {
       // project only the fields deriveView needs (unless the caller wants the raw payload)
       const projection = withData ? undefined : HISTORY_PROJECTION;
-      // fetch just this page; status counts come from the per-filter cache (recomputed only when
-      // the filter changes, not on every page flip)
-      const [pageDocs, counts] = await Promise.all([
+      // fetch just this page + a FAST total (countDocuments, not the $group). The running/downtime
+      // breakdown is intentionally NOT computed here — the client requests it via ?breakdown=1 so a
+      // slow scan never blocks the table.
+      const [pageDocs, total] = await Promise.all([
         TelemetryModel.find(filter, projection).sort({ serverTs: -1 }).skip(skip).limit(pageSize).lean() as unknown as Promise<RawDoc[]>,
-        statusCounts(filter),
+        TelemetryModel.countDocuments(filter),
       ]);
       docs = pageDocs;
-      totalCount = counts.total;
-      runningCount = counts.runningEntries;
-      downtimeCount = counts.downtimeEntries;
+      totalCount = total;
     } else {
       // legacy single-shot path (capped): used by callers that don't paginate
       const projection = withData ? undefined : HISTORY_PROJECTION;

@@ -48,22 +48,40 @@ export default function History() {
     return map;
   }, [jobs]);
 
+  // filter params shared by the page fetch and the (separate) breakdown fetch
+  const filterParams = useCallback(() => {
+    const p: Record<string, string> = {};
+    if (applied.machineId) p.machineId = applied.machineId;
+    if (applied.status) p.status = applied.status;
+    const from = toISO(applied.dateFrom, applied.timeFrom, false);
+    const to = toISO(applied.dateTo, applied.timeTo, true);
+    if (from) p.from = from;
+    if (to) p.to = to;
+    return p;
+  }, [applied]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: String(PAGE_SIZE) };
-      if (applied.machineId) params.machineId = applied.machineId;
-      if (applied.status) params.status = applied.status;
-      const from = toISO(applied.dateFrom, applied.timeFrom, false);
-      const to = toISO(applied.dateTo, applied.timeTo, true);
-      if (from) params.from = from;
-      if (to) params.to = to;
+      const params = { page: String(page), limit: String(PAGE_SIZE), ...filterParams() };
       const res = await api.get<Resp>('/api/history', { params });
       setData(res.data);
     } catch { /* keep last good */ } finally { setLoading(false); }
-  }, [applied, page]);
+  }, [filterParams, page]);
 
   useEffect(() => { load(); }, [load]);
+
+  // running/downtime breakdown is a slow whole-set scan → fetch it separately so it never blocks
+  // the table. Keyed on the filter only (not the page), so paging doesn't refetch it.
+  const [breakdown, setBreakdown] = useState({ running: 0, downtime: 0, loading: true });
+  useEffect(() => {
+    let cancelled = false;
+    setBreakdown((b) => ({ ...b, loading: true }));
+    api.get<{ runningEntries: number; downtimeEntries: number }>('/api/history', { params: { breakdown: '1', ...filterParams() } })
+      .then((res) => { if (!cancelled) setBreakdown({ running: res.data.runningEntries ?? 0, downtime: res.data.downtimeEntries ?? 0, loading: false }); })
+      .catch(() => { if (!cancelled) setBreakdown((b) => ({ ...b, loading: false })); });
+    return () => { cancelled = true; };
+  }, [filterParams]);
 
   // the server already returns just this page; join each row's current job,
   // then refine within the page using the instant search box
@@ -77,8 +95,9 @@ export default function History() {
     );
   }, [data.rows, jobByMachine, deferredSearch]);
 
-  // KPIs reflect the WHOLE filtered dataset (computed server-side across all pages)
-  const kpis = { total: data.kpis.total, running: data.kpis.runningEntries, downtime: data.kpis.downtimeEntries };
+  // KPIs reflect the WHOLE filtered dataset — total comes with the (fast) page; the running/downtime
+  // breakdown streams in separately so it doesn't hold up the table
+  const kpis = { total: data.kpis.total, running: breakdown.running, downtime: breakdown.downtime };
 
   const totalPages = Math.max(1, data.pages);
   const safePage = Math.min(page, totalPages);
@@ -217,8 +236,8 @@ export default function History() {
       {/* KPIs */}
       <div className="grid-stats-3" style={{ gap: 14, margin: '18px 0' }}>
         <KpiCard label="Total Records" value={kpis.total} sub={`${kpis.total} matched · ${PAGE_SIZE}/page`} accent="var(--accent-blue)" />
-        <KpiCard label="Running Entries" value={kpis.running} sub="Rows where status was running" accent="var(--accent-green)" />
-        <KpiCard label="Downtime Entries" value={kpis.downtime} sub="Idle or stopped rows" accent="var(--accent-red)" />
+        <KpiCard label="Running Entries" value={breakdown.loading ? '…' : kpis.running} sub="Rows where status was running" accent="var(--accent-green)" />
+        <KpiCard label="Downtime Entries" value={breakdown.loading ? '…' : kpis.downtime} sub="Idle or stopped rows" accent="var(--accent-red)" />
       </div>
 
       {/* table */}
