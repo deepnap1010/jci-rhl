@@ -540,12 +540,9 @@ function DetailsModal({ m, onClose }: { m: MachineWithState; onClose: () => void
           <StatusPill status={m.status} />
         </div>
 
-        {/* fixed metrics */}
+        {/* headline metrics — adapt to the machine's type (same as the card / Configure snapshot) */}
         <div className="grid-stats-4" style={{ gap: 8, marginBottom: 18 }}>
-          <Metric label="Speed" value={s?.speed ?? 0} unit="m/min" />
-          <Metric label="Production" value={s?.production ?? 0} unit="mtr" />
-          <Metric label="Temp" value={s?.temperature ?? 0} unit="°C" tone="warm" />
-          <Metric label="Water" value={s?.waterFlow ?? 0} unit="L/hr" tone="cool" />
+          {snapshotTiles(m).map((t) => <Metric key={t.label} label={t.label} value={t.value} />)}
         </div>
 
         {/* dynamic IOT params */}
