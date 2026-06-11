@@ -59,48 +59,35 @@ router.get('/api/downtime', async (req, res) => {
 router.get('/api/downtime/:machineId/events', async (req, res) => {
   try {
     const since = new Date(Date.now() - 24 * 3600 * 1000);
-    // only serverTs + data.status are needed to rebuild spells — projecting them (instead of the
-    // full data blob on every reading) cuts the payload from MBs of fat docs to a thin stream.
-    const docs = await TelemetryModel.find(
-      { machineId: req.params.machineId, serverTs: { $gte: since } },
-      { serverTs: 1, 'data.status': 1, _id: 0 },
-    )
-      .sort({ serverTs: 1 })
-      .lean();
+    // Collapse 24h of readings into status "runs" (one row per status CHANGE) on the database:
+    // tag each reading with a runId (cumulative count of status changes), then group. We transfer
+    // a few dozen boundaries instead of thousands of readings — the heavy scan stays in Mongo.
+    const runs = await TelemetryModel.aggregate([
+      { $match: { machineId: req.params.machineId, serverTs: { $gte: since } } },
+      { $project: { serverTs: 1, status: { $toLower: { $ifNull: ['$data.status', ''] } } } },
+      { $setWindowFields: { sortBy: { serverTs: 1 }, output: { prev: { $shift: { output: '$status', by: -1 } } } } },
+      { $set: { isNew: { $cond: [{ $eq: ['$status', '$prev'] }, 0, 1] } } },
+      { $setWindowFields: { sortBy: { serverTs: 1 }, output: { runId: { $sum: '$isNew', window: { documents: ['unbounded', 'current'] } } } } },
+      { $group: { _id: '$runId', status: { $first: '$status' }, startTs: { $min: '$serverTs' } } },
+      { $sort: { startTs: 1 } },
+    ]) as { _id: number; status: string; startTs: Date }[];
 
     type Ev = { type: 'idle' | 'stopped'; startTs: Date; endTs: Date | null; durationSec: number; ongoing: boolean };
     const events: Ev[] = [];
-    let cur: { type: 'idle' | 'stopped'; startTs: Date } | null = null;
-    const close = (end: Date) => {
-      if (!cur) return;
+    const now = new Date();
+    // a spell runs from its run's start to the NEXT run's start (or "now" if it's the latest run)
+    for (let i = 0; i < runs.length; i++) {
+      const r = runs[i];
+      if (r.status !== 'idle' && r.status !== 'stopped') continue;
+      const next = runs[i + 1];
+      const start = new Date(r.startTs);
+      const end = next ? new Date(next.startTs) : null;
       events.push({
-        type: cur.type,
-        startTs: cur.startTs,
+        type: r.status,
+        startTs: start,
         endTs: end,
-        durationSec: Math.max(0, Math.round((end.getTime() - cur.startTs.getTime()) / 1000)),
-        ongoing: false,
-      });
-      cur = null;
-    };
-
-    for (const d of docs) {
-      const st = typeof d.data?.status === 'string' ? d.data.status.toLowerCase() : '';
-      const ts = new Date(d.serverTs);
-      if (st === 'idle' || st === 'stopped') {
-        if (!cur) cur = { type: st, startTs: ts };
-        else if (cur.type !== st) { close(ts); cur = { type: st, startTs: ts }; }
-      } else {
-        close(ts);
-      }
-    }
-    if (cur) {
-      const now = new Date();
-      events.push({
-        type: cur.type,
-        startTs: cur.startTs,
-        endTs: null,
-        durationSec: Math.max(0, Math.round((now.getTime() - cur.startTs.getTime()) / 1000)),
-        ongoing: true,
+        durationSec: Math.max(0, Math.round(((end ?? now).getTime() - start.getTime()) / 1000)),
+        ongoing: !next,
       });
     }
 
