@@ -73,7 +73,7 @@ export default function Dashboard() {
 
       {/* KPI row 1 */}
       <div className="grid-stats-6" style={{ gap:12 }}>
-        <KpiCard label={ranged ? 'Production (period)' : 'Production Today'} value={(kpi?.todayProduction ?? 0).toLocaleString()} sub={`${(kpi?.totalProduction ?? 0).toLocaleString()} total · ${kpi?.totalMachines ?? 0} machines`} accent="var(--accent-blue)" onClick={() => setKpiModal('production')} />
+        <KpiCard label={ranged ? 'Production (period)' : 'Production Today'} value={(kpi?.todayProduction ?? 0).toLocaleString()} sub={`counter ${(kpi?.totalProduction ?? 0).toLocaleString()} · ${kpi?.totalMachines ?? 0} machines`} accent="var(--accent-blue)" onClick={() => setKpiModal('production')} />
         <KpiCard label="Running" value={`${kpi?.running ?? 0}/${kpi?.totalMachines ?? 0}`} sub={`${kpi?.idle ?? 0} idle`} accent="var(--accent-green)" onClick={() => setKpiModal('running')} />
         <KpiCard label="Avg Efficiency" value={`${kpi?.avgEfficiency ?? 0}%`} sub={ranged ? 'Time-weighted · period' : 'Time-weighted · today'} accent="var(--accent-amber)" onClick={() => setKpiModal('efficiency')} />
         <KpiCard label="Active Jobs" value={kpi?.activeJobs ?? 0} sub={`${kpi?.pendingJobs ?? 0} pending`} accent="var(--accent-teal)" onClick={() => setKpiModal('jobs')} />
@@ -254,12 +254,12 @@ function KpiDetailModal({
   const runningCount = rows.filter((r) => r.status === 'running').length;
   const summary = kind === 'alerts'
     ? [<Mini key="a" label="Needs attention" value={String(rows.length)} />, <Mini key="b" label="Stopped" value={String(rows.filter((r) => r.status === 'stopped').length)} />, <Mini key="c" label="Offline" value={String(rows.filter((r) => r.status === 'disconnected').length)} />]
-    : [<Mini key="a" label="Produced today" value={`${todayProd.toLocaleString()} mtr`} />, <Mini key="b" label="Total (lifetime)" value={`${totalProd.toLocaleString()} mtr`} />, <Mini key="c" label="Running" value={String(runningCount)} />];
+    : [<Mini key="a" label="Produced today" value={`${todayProd.toLocaleString()} mtr`} />, <Mini key="b" label="Live counter sum" value={`${totalProd.toLocaleString()} mtr`} />, <Mini key="c" label="Running" value={String(runningCount)} />];
   return (
     <Modal title={title} onClose={onClose}>
       <div className="grid-stats-3" style={{ gap: 10, marginBottom: 18 }}>{summary}</div>
       <table className="tbl">
-        <thead><tr><th>MACHINE</th><th>DEPARTMENT</th><th>STATUS</th><th className="r">TODAY</th><th className="r">TOTAL</th><th className="r">EFFICIENCY</th><th className="r">DOWNTIME</th></tr></thead>
+        <thead><tr><th>MACHINE</th><th>DEPARTMENT</th><th>STATUS</th><th className="r">TODAY</th><th className="r" title="Live PLC counter reading (raw; can wrap)">COUNTER</th><th className="r">EFFICIENCY</th><th className="r">DOWNTIME</th></tr></thead>
         <tbody>
           {rows.length === 0 ? (
             <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>{kind === 'alerts' ? 'No alerts — everything is running. 🎉' : 'No machines in your scope.'}</td></tr>
