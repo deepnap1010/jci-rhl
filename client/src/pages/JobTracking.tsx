@@ -1,7 +1,7 @@
 // ============================================================
 //  JOB TRACKING PAGE  —  KPIs + jobs table + create / track
 // ============================================================
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search, X, Plus } from 'lucide-react';
 import { useJobs, useMachines, useTasks } from '../hooks/useData';
 import type { JobRow } from '../hooks/useData';
@@ -19,6 +19,7 @@ const STATUS_STYLE: Record<string, [string, string, string]> = {
   inProgress: ['#eaf3fb', '#2563eb', 'In Progress'],
   completed: ['#e8f7ee', '#16a34a', 'Completed'],
 };
+const JOBS_PAGE = 10; // jobs per page in the Production Jobs table
 function JobStatus({ status }: { status: string }) {
   const [bg, fg, label] = STATUS_STYLE[status] ?? ['var(--surface-2)', 'var(--text-muted)', status];
   return <span style={{ background: bg, color: fg, borderRadius: 99, padding: '3px 11px', fontSize: 12, fontWeight: 700 }}>{label}</span>;
@@ -32,6 +33,7 @@ export default function JobTracking() {
   const [status, setStatus] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [track, setTrack] = useState<JobRow | null>(null);
+  const [page, setPage] = useState(1);
 
   const counts = useMemo(() => ({
     total: jobs.length,
@@ -45,6 +47,12 @@ export default function JobTracking() {
     if (q && !`${j.jobNumber} ${j.orderNumber} ${j.fabricName} ${j.machineCode ?? ''}`.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   });
+
+  // paginate (10/page); reset to page 1 whenever the filter changes
+  const totalPages = Math.max(1, Math.ceil(filtered.length / JOBS_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const pageJobs = filtered.slice((safePage - 1) * JOBS_PAGE, safePage * JOBS_PAGE);
+  useEffect(() => { setPage(1); }, [q, status]);
 
   return (
     <div style={{ padding: '0 28px 40px' }}>
@@ -79,7 +87,7 @@ export default function JobTracking() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((j) => (
+            {pageJobs.map((j) => (
               <tr key={j._id} style={{ borderTop: '1px solid var(--border)' }}>
                 <td style={{ ...td, fontWeight: 700 }} className="mono">{j.jobNumber}</td>
                 <td style={td}>{j.orderNumber}</td>
@@ -104,6 +112,18 @@ export default function JobTracking() {
             )}
           </tbody>
         </table>
+        {filtered.length > JOBS_PAGE && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              Showing <b style={{ color: 'var(--text)' }}>{(safePage - 1) * JOBS_PAGE + 1}–{Math.min(safePage * JOBS_PAGE, filtered.length)}</b> of <b style={{ color: 'var(--text)' }}>{filtered.length}</b>
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1} style={jobsPagerBtn(safePage <= 1)}>‹ Prev</button>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', alignSelf: 'center' }}>Page {safePage} / {totalPages}</span>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages} style={jobsPagerBtn(safePage >= totalPages)}>Next ›</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showCreate && <CreateJobModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); reload(); }} />}
@@ -263,6 +283,11 @@ const tdR: React.CSSProperties = { ...td, textAlign: 'right' };
 const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 16px', fontWeight: 700, fontSize: 14 };
 const ghostBtn: React.CSSProperties = { background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border-strong)', borderRadius: 10, padding: '9px 16px', fontWeight: 700, fontSize: 14 };
 const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--brand)', fontWeight: 700, fontSize: 13 };
+const jobsPagerBtn = (disabled: boolean): React.CSSProperties => ({
+  minWidth: 64, height: 32, padding: '0 12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+  border: '1px solid var(--border-strong)', background: 'var(--surface)',
+  color: disabled ? 'var(--text-faint)' : 'var(--brand)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1,
+});
 const fullInput: React.CSSProperties = { ...inputStyle, width: '100%' };
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(20,28,46,.45)', display: 'grid', placeItems: 'start center', paddingTop: '6vh', zIndex: 50, backdropFilter: 'blur(2px)' };
 const modal: React.CSSProperties = { width: 'min(640px,94vw)', maxHeight: '86vh', overflowY: 'auto', padding: 24, animation: 'fadeUp .25s ease' };
