@@ -743,6 +743,13 @@ function ConfigureModal({
   const [shift, setShift] = useState(job?.shift ?? 'A');
   const [operatorId, setOperatorId] = useState(job?.operatorId ?? '');
   const [supervisorId, setSupervisorId] = useState(job?.supervisorId ?? '');
+  // editable "loaded time" for soft-flow batches → drives the card's Duration
+  const [loadedAtInput, setLoadedAtInput] = useState(() => {
+    if (!job?.loadedAt) return '';
+    const d = new Date(job.loadedAt);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -762,9 +769,6 @@ function ConfigureModal({
     walk(node.children);
     return ops;
   }, [supervisorId, flatOrg]);
-  const loadedAtDisplay = job?.loadedAt
-    ? new Date(job.loadedAt).toLocaleString('en-US', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : null;
 
   async function save() {
     setSaving(true);
@@ -781,7 +785,9 @@ function ConfigureModal({
         supervisorId: supervisorId || null,
         batchId: isDyeing ? batchId : '',
         processType: isDyeing ? processType : '',
-        loadedAt: (isDyeing && !liveBatchDye) ? (job?.loadedAt ?? new Date().toISOString()) : null,
+        loadedAt: (isDyeing && !liveBatchDye)
+          ? (loadedAtInput ? new Date(loadedAtInput).toISOString() : (job?.loadedAt ?? new Date().toISOString()))
+          : null,
         glm: isDyeing ? Number(glm) || 0 : 0,
         liquorRatio: isDyeing ? liquorRatio : '',
         dyeStage: isDyeing ? dyeStage : '',
@@ -893,11 +899,10 @@ function ConfigureModal({
             <label style={block}><div style={lbl}>Loaded Meter (meters)</div>
               <input style={field} type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="10000" />
             </label>
-            {loadedAtDisplay && (
-              <div style={{ background: '#e8f7ee', color: 'var(--running)', borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
-                ✓ Loaded at: {loadedAtDisplay}
-              </div>
-            )}
+            <label style={block}><div style={lbl}>Loaded Time</div>
+              <input style={field} type="datetime-local" value={loadedAtInput} onChange={(e) => setLoadedAtInput(e.target.value)} />
+              <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>When the fabric was loaded — drives the Duration on the card. Leave blank to stamp the current time on save.</div>
+            </label>
             <div style={{ borderTop: '1px dashed var(--border)', margin: '4px 0 16px' }} />
           </>
         )) : (
