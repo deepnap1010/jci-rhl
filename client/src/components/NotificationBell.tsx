@@ -36,6 +36,12 @@ export default function NotificationBell() {
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
+  // acknowledged machine alerts (per-browser). Dismissing one hides it + drops the badge count.
+  const [acked, setAcked] = useState<Set<string>>(() => {
+    try { return new Set<string>(JSON.parse(localStorage.getItem('ackedAlerts') || '[]')); } catch { return new Set(); }
+  });
+  const persistAcked = (s: Set<string>) => { try { localStorage.setItem('ackedAlerts', JSON.stringify([...s])); } catch { /* ignore */ } };
+
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
@@ -45,7 +51,33 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
 
-  const { alerts, counts } = data;
+  // when an acknowledged alert no longer exists (machine recovered), forget the ack so a future
+  // recurrence alerts again
+  useEffect(() => {
+    const live = new Set(data.alerts.map((a) => a.id));
+    setAcked((prev) => {
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      if (next.size !== prev.size) { persistAcked(next); return next; }
+      return prev;
+    });
+  }, [data.alerts]);
+
+  // show + count only the alerts the user hasn't acknowledged
+  const alerts = data.alerts.filter((a) => !acked.has(a.id));
+  const counts = {
+    critical: alerts.filter((a) => a.severity === 'critical').length,
+    warning: alerts.filter((a) => a.severity === 'warning').length,
+    info: alerts.filter((a) => a.severity === 'info').length,
+    total: alerts.length,
+  };
+  const ackOne = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setAcked((prev) => { const n = new Set(prev); n.add(id); persistAcked(n); return n; });
+  };
+  const ackAll = () => {
+    setAcked((prev) => { const n = new Set(prev); data.alerts.forEach((a) => n.add(a.id)); persistAcked(n); return n; });
+  };
+
   const badge = unread + counts.total;
   const badgeColor = unread > 0 ? '#3b5bfd' : counts.critical > 0 ? '#ef4444' : counts.warning > 0 ? '#f59e0b' : '#3b82f6';
   const shake = unread > 0 || counts.critical > 0;
@@ -125,7 +157,10 @@ export default function NotificationBell() {
 
           {/* ── Machine alerts ── */}
           <div style={{ ...S.head, borderTop: '1px solid var(--border)' }}>
-            <span style={{ fontWeight: 800, fontSize: 14 }}>Machine alerts</span>
+            <span style={{ fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              Machine alerts
+              {counts.total > 0 && <button onClick={ackAll} style={S.linkBtn}>Acknowledge all</button>}
+            </span>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {counts.critical > 0 && <b style={{ color: SEV.critical.color }}>{counts.critical} critical</b>}
               {counts.critical > 0 && (counts.warning > 0 || counts.info > 0) ? ' · ' : ''}
@@ -140,9 +175,9 @@ export default function NotificationBell() {
               <div style={S.empty}>✓ No alerts — everything looks healthy.</div>
             ) : (
               alerts.map((a) => (
-                <button key={a.id} onClick={() => goAlert(a)} style={S.row}>
+                <div key={a.id} style={S.row}>
                   <span style={{ ...S.sevDot, background: SEV[a.severity].dot }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <button onClick={() => goAlert(a)} style={{ flex: 1, minWidth: 0, border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <span style={{ fontWeight: 700, fontSize: 13 }}>{a.title}</span>
                       <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{a.machineCode}</span>
@@ -150,8 +185,9 @@ export default function NotificationBell() {
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {a.detail} · {a.department}
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  <button onClick={(e) => ackOne(a.id, e)} title="Acknowledge" style={S.ackX}>✓</button>
+                </div>
               ))
             )}
           </div>
@@ -172,4 +208,5 @@ const S: Record<string, React.CSSProperties> = {
   empty: { padding: '22px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 },
   linkBtn: { border: 'none', background: 'none', color: 'var(--brand)', fontSize: 12, fontWeight: 700, cursor: 'pointer' },
   ackBtn: { display: 'inline-block', marginTop: 7, background: 'var(--brand)', color: '#fff', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 700 },
+  ackX: { flex: 'none', width: 26, height: 26, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--running)', fontWeight: 800, cursor: 'pointer', display: 'grid', placeItems: 'center', alignSelf: 'center' },
 };
