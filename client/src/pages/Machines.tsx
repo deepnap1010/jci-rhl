@@ -185,7 +185,7 @@ export default function Machines() {
 
       {reportM && <ReportDowntimeModal m={reportM} onClose={() => setReportM(null)} />}
       {selected && <DetailsModal m={selected} onClose={() => setSelected(null)} />}
-      {historyM && <HistoryModal m={historyM} onClose={() => setHistoryM(null)} />}
+      {historyM && <HistoryModal m={historyM} from={fromISO} to={toISO} onClose={() => setHistoryM(null)} />}
       {configM && (
         <ConfigureModal
           m={configM}
@@ -579,7 +579,7 @@ interface HistRow {
   data?: Record<string, number | string | boolean>; // raw PLC snapshot for that reading
 }
 const HIST_PAGE = 10; // readings per page in the recent-history modal
-function HistoryModal({ m, onClose }: { m: MachineWithState; onClose: () => void }) {
+function HistoryModal({ m, from, to, onClose }: { m: MachineWithState; from?: string; to?: string; onClose: () => void }) {
   useModalDismiss(onClose);
   const [rows, setRows] = useState<HistRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -588,22 +588,25 @@ function HistoryModal({ m, onClose }: { m: MachineWithState; onClose: () => void
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const fields = m.machineType?.fields ?? [];
+  const ranged = !!(from && to);
+
+  // when the page's date filter is active, scope history to that day too (so the modal matches the card)
+  useEffect(() => { setPage(1); }, [from, to]);
 
   // one small page at a time from the server, so the modal opens fast
   useEffect(() => {
     let alive = true;
     const ctrl = new AbortController();
     setLoading(true);
+    const params: Record<string, string | number> = { machineId: m.code, page, limit: HIST_PAGE, withData: 1 };
+    if (from && to) { params.from = from; params.to = to; }
     api
-      .get<{ rows: HistRow[]; total: number; pages: number }>('/api/history', {
-        params: { machineId: m.code, page, limit: HIST_PAGE, withData: 1 },
-        signal: ctrl.signal,
-      })
+      .get<{ rows: HistRow[]; total: number; pages: number }>('/api/history', { params, signal: ctrl.signal })
       .then((r) => { if (alive) { setRows(r.data.rows || []); setTotal(r.data.total || 0); setPages(Math.max(1, r.data.pages || 1)); } })
       .catch((e) => { if (alive && e?.code !== 'ERR_CANCELED') setRows([]); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; ctrl.abort(); };
-  }, [m.code, page]);
+  }, [m.code, page, from, to]);
 
   const toggle = (id: string) => setOpen((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -611,10 +614,12 @@ function HistoryModal({ m, onClose }: { m: MachineWithState; onClose: () => void
     <div style={overlay} onClick={onClose}>
       <div className="card" style={modal} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800 }}>{m.code} — Recent History</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 800 }}>{m.code} — {ranged ? 'History' : 'Recent History'}</h2>
           <button onClick={onClose} style={{ border: 'none', background: 'none' }}><X size={20} /></button>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>{m.name} · {total.toLocaleString()} readings · {HIST_PAGE}/page · click “Show details” for that moment's full data</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+          {m.name} · {total.toLocaleString()} readings{ranged ? ` on ${new Date(from!).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''} · {HIST_PAGE}/page · click “Show details” for that moment's full data
+        </div>
         {loading ? (
           <div style={{ color: 'var(--text-muted)', padding: 24, textAlign: 'center' }}>Loading…</div>
         ) : rows.length === 0 ? (
