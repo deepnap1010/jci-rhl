@@ -102,7 +102,7 @@ export default function Downtime() {
         )}
       </div>
 
-      <div className="auto-cards" style={{ gap: 16, marginTop: 18 }}>
+      <div className="masonry-cards" style={{ marginTop: 18 }}>
         {visibleCards.length === 0 ? (
           <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             {cards.length > 0 && hideZero ? 'No machines had downtime in this window. Untick “Hide no-downtime” to see all.' : 'No machines match these filters.'}

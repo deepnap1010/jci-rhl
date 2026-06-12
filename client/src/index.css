@@ -121,6 +121,11 @@ button { font-family: inherit; cursor: pointer; }
 .auto-cards    { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
 .auto-cards-sm { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
 
+/* masonry (multi-column): variable-height cards pack independently, so expanding one card never
+   resizes its neighbours (unlike a grid row, which stretches to its tallest item). */
+.masonry-cards { columns: 360px; column-gap: 16px; }
+.masonry-cards > * { break-inside: avoid; -webkit-column-break-inside: avoid; margin-bottom: 16px; }
+
 /* ---- large laptop / small desktop ---- */
 @media (max-width: 1280px) {
   .grid-stats-6 { grid-template-columns: repeat(4, 1fr); }
