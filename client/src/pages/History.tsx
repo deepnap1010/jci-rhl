@@ -113,7 +113,8 @@ export default function History() {
     setPage(1);
   }
   function toggle(id: string) {
-    setOpen((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    // accordion: opening a row collapses any other open one (at most one expanded at a time)
+    setOpen((p) => (p.has(id) ? new Set() : new Set([id])));
   }
 
   // removable chips for what's actually in effect
