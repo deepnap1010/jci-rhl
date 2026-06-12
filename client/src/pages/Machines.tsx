@@ -3,7 +3,8 @@
 //  Summary KPIs + filters + dynamic machine cards.
 //  Click a card's "Details" to see the dynamic IOT params.
 // ============================================================
-import { useMemo, useState, useEffect, Fragment } from 'react';
+import { useMemo, useState, useEffect, useCallback, Fragment } from 'react';
+import { usePagedData } from '../hooks/usePagedData';
 import { useSearchParams } from 'react-router-dom';
 import { Search, X, ChevronRight, ChevronDown } from 'lucide-react';
 import { useMachines, useJobs, usePeople, useOrg, useDowntimeReports, liveSummary, fmtLastSeen, fmtAgo } from '../hooks/useData';
@@ -581,14 +582,25 @@ interface HistRow {
 const HIST_PAGE = 10; // readings per page in the recent-history modal
 function HistoryModal({ m, from, to, onClose }: { m: MachineWithState; from?: string; to?: string; onClose: () => void }) {
   useModalDismiss(onClose);
-  const [rows, setRows] = useState<HistRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [pages, setPages] = useState(1);
   const fields = m.machineType?.fields ?? [];
   const ranged = !!(from && to);
+
+  // paginated fetch with next-page prefetch + per-modal cache (auto-cleared when the modal closes).
+  // revisiting a page is served from cache — no server hit.
+  const cacheKey = `${m.code}|${from || ''}|${to || ''}`;
+  const fetchPage = useCallback((p: number, signal?: AbortSignal) => {
+    const params: Record<string, string | number> = { machineId: m.code, page: p, limit: HIST_PAGE, withData: 1 };
+    if (from && to) { params.from = from; params.to = to; }
+    return api.get<{ rows: HistRow[]; total: number; pages: number }>('/api/history', { params, signal })
+      .then((r) => ({ rows: r.data.rows || [], total: r.data.total || 0, pages: Math.max(1, r.data.pages || 1) }));
+  }, [m.code, from, to]);
+  const { data, loading } = usePagedData(cacheKey, fetchPage, page);
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const pages = data?.pages ?? 1;
+
   const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   const rangeLbl = ranged ? (fmtDay(from!) === fmtDay(to!) ? fmtDay(from!) : `${fmtDay(from!)} → ${fmtDay(to!)}`) : '';
   // the newest reading actually present in the window (rows are sorted newest-first) vs the range end
@@ -596,23 +608,8 @@ function HistoryModal({ m, from, to, onClose }: { m: MachineWithState; from?: st
   const latestInWindow = ranged && rows.length ? dayShort(rows[0].ts) : '';
   const reportsShort = ranged && latestInWindow && latestInWindow !== dayShort(to!);
 
-  // when the page's date filter is active, scope history to that day too (so the modal matches the card)
-  useEffect(() => { setPage(1); }, [from, to]);
-
-  // one small page at a time from the server, so the modal opens fast
-  useEffect(() => {
-    let alive = true;
-    const ctrl = new AbortController();
-    setLoading(true);
-    const params: Record<string, string | number> = { machineId: m.code, page, limit: HIST_PAGE, withData: 1 };
-    if (from && to) { params.from = from; params.to = to; }
-    api
-      .get<{ rows: HistRow[]; total: number; pages: number }>('/api/history', { params, signal: ctrl.signal })
-      .then((r) => { if (alive) { setRows(r.data.rows || []); setTotal(r.data.total || 0); setPages(Math.max(1, r.data.pages || 1)); } })
-      .catch((e) => { if (alive && e?.code !== 'ERR_CANCELED') setRows([]); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; ctrl.abort(); };
-  }, [m.code, page, from, to]);
+  // when the machine / date filter changes, jump back to page 1 (the cache resets via cacheKey)
+  useEffect(() => { setPage(1); }, [m.code, from, to]);
 
   const toggle = (id: string) => setOpen((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 

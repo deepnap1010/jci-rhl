@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState, useDeferredValue, Fragment }
 import { Filter, Download, ArrowLeft, Plus, Minus, Search, X, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api/client';
 import { useMachines, useJobs } from '../hooks/useData';
+import { usePagedData } from '../hooks/usePagedData';
 import type { HistoryRow, JobRow } from '../hooks/useData';
 import { KpiCard, StatusPill, inputStyle } from '../components/ui';
 
@@ -32,8 +33,6 @@ export default function History() {
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);      // smooth instant filtering
   const [showMore, setShowMore] = useState(false);
-  const [data, setData] = useState<Resp>({ rows: [], kpis: { total: 0, runningEntries: 0, downtimeEntries: 0 }, total: 0, page: 1, pages: 1, limit: PAGE_SIZE });
-  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
@@ -64,16 +63,14 @@ export default function History() {
     return p;
   }, [applied]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = { page: String(page), limit: String(PAGE_SIZE), ...filterParams() };
-      const res = await api.get<Resp>('/api/history', { params });
-      setData(res.data);
-    } catch { /* keep last good */ } finally { setLoading(false); }
-  }, [filterParams, page]);
-
-  useEffect(() => { load(); }, [load]);
+  // paginated fetch with next-page prefetch + cache (per filter). Visiting a page you've already
+  // seen is served from cache; the cache is dropped when the filter changes or you leave the page.
+  const cacheKey = JSON.stringify(filterParams());
+  const fetchPage = useCallback((p: number, signal?: AbortSignal) =>
+    api.get<Resp>('/api/history', { params: { page: String(p), limit: String(PAGE_SIZE), ...filterParams() }, signal }).then((r) => r.data),
+    [filterParams]);
+  const { data: paged, loading } = usePagedData(cacheKey, fetchPage, page);
+  const data: Resp = paged ?? { rows: [], kpis: { total: 0, runningEntries: 0, downtimeEntries: 0 }, total: 0, page: 1, pages: 1, limit: PAGE_SIZE };
 
   // running/downtime breakdown is a slow whole-set scan → fetch it separately so it never blocks
   // the table. Keyed on the filter only (not the page), so paging doesn't refetch it.
