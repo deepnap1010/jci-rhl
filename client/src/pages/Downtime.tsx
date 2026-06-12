@@ -20,6 +20,7 @@ export default function Downtime() {
   const [dept, setDept] = useState('');
   const [status, setStatus] = useState('');
   const [sort, setSort] = useState('downtime'); // worst offenders first by default
+  const [hideZero, setHideZero] = useState(true); // hide machines with no downtime in the window
 
   // build the query string from the filters
   const qs = (() => {
@@ -42,12 +43,15 @@ export default function Downtime() {
   const rangeNote = dateFrom || dateTo ? 'in range' : '24h';
 
   const down = (m: Card) => (m.idleSec || 0) + (m.stoppedSec || 0);
+  const hasDowntime = (m: Card) => down(m) > 0 || (m.eventCount || 0) > 0 || !!m.lastSpell;
   const sortedCards = [...cards].sort((a, b) => {
     if (sort === 'occurrences') return (b.eventCount || 0) - (a.eventCount || 0) || a.code.localeCompare(b.code);
     if (sort === 'status') return (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.code.localeCompare(b.code);
     if (sort === 'name') return a.code.localeCompare(b.code);
     return down(b) - down(a) || a.code.localeCompare(b.code); // 'downtime' (default): most idle+stopped first
   });
+  const visibleCards = hideZero ? sortedCards.filter(hasDowntime) : sortedCards;
+  const hiddenCount = cards.length - visibleCards.length;
 
   return (
     <div style={{ padding: '0 28px 40px' }}>
@@ -85,7 +89,11 @@ export default function Downtime() {
             <option value="name">Name</option>
           </select>
         </Lbl>
-        <span style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 9 }}>Showing {cards.length} machine{cards.length === 1 ? '' : 's'}</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9, fontSize: 13, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+          <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />
+          Hide no-downtime{hideZero && hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ''}
+        </label>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 9 }}>Showing {visibleCards.length} machine{visibleCards.length === 1 ? '' : 's'}</span>
         {filtered && (
           <button onClick={() => { setDateFrom(''); setDateTo(''); setDept(''); setStatus(''); }}
             style={{ marginLeft: 'auto', marginBottom: 4, border: 'none', background: 'none', color: 'var(--brand)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
@@ -95,10 +103,12 @@ export default function Downtime() {
       </div>
 
       <div className="auto-cards" style={{ gap: 16, marginTop: 18 }}>
-        {cards.length === 0 ? (
-          <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No machines match these filters.</div>
+        {visibleCards.length === 0 ? (
+          <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+            {cards.length > 0 && hideZero ? 'No machines had downtime in this window. Untick “Hide no-downtime” to see all.' : 'No machines match these filters.'}
+          </div>
         ) : (
-          sortedCards.map((m) => <DowntimeCardView key={m._id} m={m} />)
+          visibleCards.map((m) => <DowntimeCardView key={m._id} m={m} />)
         )}
       </div>
     </div>
