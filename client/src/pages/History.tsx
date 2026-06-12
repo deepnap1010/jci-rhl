@@ -261,9 +261,10 @@ export default function History() {
               <tr><td colSpan={11} style={{ ...td, textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>Loading history…</td></tr>
             ) : pageRows.length === 0 ? (
               <tr><td colSpan={11} style={{ ...td, textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>{deferredSearch.trim() ? 'No rows on this page match your search — clear it or change page.' : 'No records match — adjust filters or let the simulator build history.'}</td></tr>
-            ) : pageRows.map((r) => {
+            ) : pageRows.map((r, idx) => {
               const j = r.job;
               const isOpen = open.has(r._id);
+              const prev = pageRows[idx + 1]; // rows are newest-first → the next one is the previous reading
               return (
                 <Fragment key={r._id}>
                   <tr style={{ borderTop: '1px solid var(--border)' }}>
@@ -287,11 +288,18 @@ export default function History() {
                     <tr style={{ background: 'var(--surface-2)' }}>
                       <td></td>
                       <td colSpan={10} style={{ padding: '12px 16px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>
+                          {prev
+                            ? <>Change vs previous reading <span className="mono" style={{ color: 'var(--text-faint)' }}>({fmtDateTime(prev.ts)})</span></>
+                            : 'Oldest reading in view — no earlier record on this page to compare'}
+                        </div>
                         <div className="grid-stats-4" style={{ gap: 10 }}>
+                          <DeltaTile label="Speed" value={r.speed} prev={prev?.speed} unit="m/min" />
+                          <DeltaTile label="Production" value={r.production} prev={prev?.production} unit="mtr" />
+                          <DeltaTile label="Temperature" value={r.temperature} prev={prev?.temperature} unit="°C" />
+                          <DeltaTile label="Water Flow" value={r.waterFlow} prev={prev?.waterFlow} unit="L/hr" />
+                          <DeltaTile label="Efficiency" value={r.efficiency} prev={prev?.efficiency} unit="%" />
                           <Detail label="Department" value={r.department} />
-                          <Detail label="Temperature" value={`${r.temperature} °C`} />
-                          <Detail label="Water Flow" value={`${r.waterFlow.toLocaleString()} L/hr`} />
-                          <Detail label="Efficiency" value={`${r.efficiency}%`} />
                         </div>
                       </td>
                     </tr>
@@ -389,6 +397,25 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', letterSpacing: '.04em' }}>{label.toUpperCase()}</div>
       <div className="mono" style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{value}</div>
+    </div>
+  );
+}
+
+// a value tile that also shows how it changed from the previous reading (▲ up / ▼ down / no change)
+const numFmt = (n: number) => (Number.isInteger(n) ? n.toLocaleString() : Number(n.toFixed(2)).toLocaleString());
+function DeltaTile({ label, value, prev, unit }: { label: string; value: number; prev?: number; unit?: string }) {
+  const d = prev != null ? value - prev : null;
+  const up = (d ?? 0) > 0;
+  const color = d == null ? 'var(--text-faint)' : d === 0 ? 'var(--text-faint)' : up ? 'var(--running)' : 'var(--stopped)';
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', letterSpacing: '.04em' }}>{label.toUpperCase()}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+        <span className="mono" style={{ fontSize: 14, fontWeight: 700 }}>{numFmt(value)}{unit ? ` ${unit}` : ''}</span>
+      </div>
+      <div className="mono" style={{ fontSize: 11, fontWeight: 700, color, marginTop: 2 }}>
+        {d == null ? '—' : d === 0 ? 'no change' : `${up ? '▲' : '▼'} ${numFmt(Math.abs(d))}`}
+      </div>
     </div>
   );
 }
