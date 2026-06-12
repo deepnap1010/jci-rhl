@@ -20,6 +20,8 @@ const router = Router();
 // time-weighted from those windowed seconds (runningSec / active), not a mean of per-machine %.
 type Cum = { production: number; runningSec: number; idleSec: number; stoppedSec: number; downtimeSec: number };
 const ZERO: Cum = { production: 0, runningSec: 0, idleSec: 0, stoppedSec: 0, downtimeSec: 0 };
+const STALE_MS = 5 * 60 * 1000;       // live feed older than this → show last-known instead of zeros
+const IST_OFFSET = 5.5 * 3600 * 1000; // factory-local day boundary
 
 // Window total = SUM of per-day deltas. A single (end−start) delta over a multi-day range is wrong
 // because counters reset several times inside the window (so a 6-day range came out < one day).
@@ -80,7 +82,33 @@ router.get('/api/dashboard', async (req, res) => {
     const f = req.query.from ? new Date(String(req.query.from)) : null;
     const t = req.query.to ? new Date(String(req.query.to)) : null;
     const range = f && t && !isNaN(f.getTime()) && !isNaN(t.getTime()) ? { from: f, to: t } : null;
-    const latest = range ? await latestByMachineInWindow(range.from, range.to) : undefined;
+
+    // active window: a selected range, or "today" (client's local midnight in ?dayStart=) → now.
+    const ds = req.query.dayStart ? new Date(String(req.query.dayStart)) : null;
+    let winStart = range ? range.from : (ds && !isNaN(ds.getTime()) ? ds : null);
+    let winEnd = range ? range.to : new Date();
+    let latest = range ? await latestByMachineInWindow(range.from, range.to) : undefined;
+
+    // Live feed gone stale (no data today)? Fall back to the last day that DOES have data, so the
+    // dashboard shows last-known values + statuses "as of <time>" instead of a wall of zeros.
+    let stale = false;
+    let lastUpdated: string | null = null;
+    if (!range) {
+      const latestDoc = (await TelemetryModel.findOne({}, { serverTs: 1 }).sort({ serverTs: -1 }).lean()) as { serverTs: Date } | null;
+      const asOf = latestDoc ? new Date(latestDoc.serverTs) : null;
+      if (asOf) {
+        lastUpdated = asOf.toISOString();
+        const noDataToday = !!winStart && asOf.getTime() < winStart.getTime();
+        if (noDataToday || Date.now() - asOf.getTime() > STALE_MS) {
+          stale = true;
+          const ist = new Date(asOf.getTime() + IST_OFFSET);
+          winStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST_OFFSET);
+          winEnd = asOf;
+          latest = await latestByMachineInWindow(winStart, asOf); // snapshot → as-recorded statuses
+        }
+      }
+    }
+
     const views = await getScopedViews(req.user!, latest);
 
     const running = views.filter((v) => v.status === 'running').length;
@@ -90,12 +118,6 @@ router.get('/api/dashboard', async (req, res) => {
     const withState = views.filter((v) => v.state);
     // lifetime cumulative production (the "Total" sub-line on the card)
     const totalProduction = withState.reduce((s, v) => s + (v.state!.production || 0), 0);
-
-    // active window: a selected day range, or "today" (client's local midnight in ?dayStart=)
-    // up to now for the live view.
-    const ds = req.query.dayStart ? new Date(String(req.query.dayStart)) : null;
-    const winStart = range ? range.from : (ds && !isNaN(ds.getTime()) ? ds : null);
-    const winEnd = range ? range.to : new Date();
 
     // per-machine windowed metrics = sum of positive counter increments over the window (handles
     // the daily/intra-day counter resets, so a multi-day range = the sum of its days).
@@ -175,6 +197,8 @@ router.get('/api/dashboard', async (req, res) => {
       downtimeSec,
       deptStats,
       machineBreakdown,
+      stale,
+      lastUpdated,
     };
     res.json(data);
   } catch (err) {

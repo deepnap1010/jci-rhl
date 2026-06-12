@@ -33,6 +33,11 @@ export default function Dashboard() {
   const fromISO = ranged ? new Date(`${day}T00:00`).toISOString() : undefined;
   const toISO = ranged ? new Date(`${endDay}T23:59`).toISOString() : undefined;
   const kpi = useDashboard(fromISO, toISO);
+  // live feed offline → server returns the last available day's values; relabel so "today" isn't a lie
+  const stale = !ranged && !!kpi?.stale;
+  const asOfLabel = kpi?.lastUpdated
+    ? new Date(kpi.lastUpdated).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : '';
   const { machines } = useMachines();
   const { data: jobs } = useJobs();
   const people = usePeople();
@@ -74,11 +79,18 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* live feed offline → values shown are the last recorded day, not "today" */}
+      {stale && (
+        <div className="card" style={{ padding: '10px 14px', marginBottom: 14, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          ⚠ Live feed offline — showing the last recorded values{asOfLabel ? ` as of ${asOfLabel}` : ''}. They'll refresh automatically when telemetry resumes.
+        </div>
+      )}
+
       {/* KPI row 1 */}
       <div className="grid-stats-6" style={{ gap:12 }}>
-        <KpiCard label={ranged ? 'Total Production' : 'Production Today'} value={(kpi?.todayProduction ?? 0).toLocaleString()} sub={ranged ? `${periodShort} · ${kpi?.totalMachines ?? 0} machines` : `${kpi?.totalMachines ?? 0} machines`} accent="var(--accent-blue)" onClick={() => setKpiModal('production')} />
-        <KpiCard label="Running" value={`${kpi?.running ?? 0}/${kpi?.totalMachines ?? 0}`} sub={`${kpi?.idle ?? 0} idle`} accent="var(--accent-green)" onClick={() => setKpiModal('running')} />
-        <KpiCard label="Avg Efficiency" value={`${kpi?.avgEfficiency ?? 0}%`} sub={ranged ? 'Time-weighted · period' : 'Time-weighted · today'} accent="var(--accent-amber)" onClick={() => setKpiModal('efficiency')} />
+        <KpiCard label={ranged ? 'Total Production' : stale ? 'Production (last day)' : 'Production Today'} value={(kpi?.todayProduction ?? 0).toLocaleString()} sub={ranged ? `${periodShort} · ${kpi?.totalMachines ?? 0} machines` : stale ? `as of ${asOfLabel}` : `${kpi?.totalMachines ?? 0} machines`} accent="var(--accent-blue)" onClick={() => setKpiModal('production')} />
+        <KpiCard label="Running" value={`${kpi?.running ?? 0}/${kpi?.totalMachines ?? 0}`} sub={stale ? `${kpi?.idle ?? 0} idle · last seen` : `${kpi?.idle ?? 0} idle`} accent="var(--accent-green)" onClick={() => setKpiModal('running')} />
+        <KpiCard label="Avg Efficiency" value={`${kpi?.avgEfficiency ?? 0}%`} sub={ranged ? 'Time-weighted · period' : stale ? 'Time-weighted · last day' : 'Time-weighted · today'} accent="var(--accent-amber)" onClick={() => setKpiModal('efficiency')} />
         <KpiCard label="Active Jobs" value={kpi?.activeJobs ?? 0} sub={`${kpi?.pendingJobs ?? 0} pending`} accent="var(--accent-teal)" onClick={() => setKpiModal('jobs')} />
         <KpiCard label="Employees" value={kpi?.employees ?? 0} sub="On the floor" accent="var(--accent-purple)" onClick={() => setKpiModal('employees')} />
         <KpiCard label="Alerts" value={kpi?.alerts ?? 0} sub="Stopped machines" accent="var(--accent-red)" onClick={() => setKpiModal('alerts')} />
@@ -86,10 +98,10 @@ export default function Dashboard() {
 
       {/* KPI row 2 — time based */}
       <div className="grid-stats-4" style={{ gap: 12, marginTop: 12 }}>
-        <KpiCard label="Running Time" value={fmtDuration(kpi?.runningSec ?? 0)} sub={ranged ? `Machine-hours · ${periodShort}` : 'Machine-hours today'} accent="var(--accent-green)" onClick={() => setTimeModal('running')} />
-        <KpiCard label="Idle Time" value={fmtDuration(kpi?.idleSec ?? 0)} sub={ranged ? periodShort : 'Today'} accent="var(--accent-amber)" onClick={() => setTimeModal('idle')} />
-        <KpiCard label="Stopped Time" value={fmtDuration(kpi?.stoppedSec ?? 0)} sub={ranged ? periodShort : 'Today'} accent="var(--accent-red)" onClick={() => setTimeModal('stopped')} />
-        <KpiCard label="Total Downtime" value={fmtDuration(kpi?.downtimeSec ?? 0)} sub={ranged ? `Idle + stopped · ${periodShort}` : 'Idle + stopped · today'} accent="var(--accent-pink)" onClick={() => setTimeModal('downtime')} />
+        <KpiCard label="Running Time" value={fmtDuration(kpi?.runningSec ?? 0)} sub={ranged ? `Machine-hours · ${periodShort}` : stale ? 'Machine-hours · last day' : 'Machine-hours today'} accent="var(--accent-green)" onClick={() => setTimeModal('running')} />
+        <KpiCard label="Idle Time" value={fmtDuration(kpi?.idleSec ?? 0)} sub={ranged ? periodShort : stale ? 'Last recorded day' : 'Today'} accent="var(--accent-amber)" onClick={() => setTimeModal('idle')} />
+        <KpiCard label="Stopped Time" value={fmtDuration(kpi?.stoppedSec ?? 0)} sub={ranged ? periodShort : stale ? 'Last recorded day' : 'Today'} accent="var(--accent-red)" onClick={() => setTimeModal('stopped')} />
+        <KpiCard label="Total Downtime" value={fmtDuration(kpi?.downtimeSec ?? 0)} sub={ranged ? `Idle + stopped · ${periodShort}` : stale ? 'Idle + stopped · last day' : 'Idle + stopped · today'} accent="var(--accent-pink)" onClick={() => setTimeModal('downtime')} />
       </div>
 
       {/* pipeline */}

@@ -215,6 +215,8 @@ export interface DashboardData {
   downtimeSec: number; // idle + stopped
   deptStats: { dept: Department; machines: number; production: number; efficiency: number }[];
   machineBreakdown: MachineBreakdown[]; // per-machine windowed values that drive the KPI drill-downs
+  stale?: boolean;            // live feed offline → values are the last available day, not "today"
+  lastUpdated?: string | null; // ISO timestamp of the most recent reading
 }
 
 // per-machine values for the active window (today / selected day), used by the dashboard modals
