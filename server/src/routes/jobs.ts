@@ -85,6 +85,7 @@ router.get('/api/jobs', async (req, res) => {
         liquorRatio: j.liquorRatio || '',
         dyeStage: j.dyeStage || '',
         shift: j.shift || 'A',
+        createdAt: (j as { createdAt?: Date }).createdAt ? new Date((j as { createdAt: Date }).createdAt).toISOString() : null,
       };
     });
 

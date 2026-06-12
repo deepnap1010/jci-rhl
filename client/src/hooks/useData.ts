@@ -191,6 +191,7 @@ export interface JobRow {
   liquorRatio: string;
   dyeStage: string;
   shift: string;
+  createdAt: string | null; // when the job was allotted
 }
 
 export interface EmployeeRow {

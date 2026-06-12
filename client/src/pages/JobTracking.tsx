@@ -31,6 +31,8 @@ export default function JobTracking() {
   const canCreate = can(role, 'assignJobs');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [track, setTrack] = useState<JobRow | null>(null);
   const [page, setPage] = useState(1);
@@ -42,9 +44,18 @@ export default function JobTracking() {
     pending: jobs.filter((j) => j.status === 'pending').length,
   }), [jobs]);
 
+  // allotted-date window (a single "From" date filters that whole day; with "To" it's a range)
+  const fromMs = dateFrom ? new Date(`${dateFrom}T00:00`).getTime() : null;
+  const toMs = (dateTo || dateFrom) ? new Date(`${dateTo || dateFrom}T23:59:59`).getTime() : null;
+
   const filtered = jobs.filter((j) => {
     if (status && j.status !== status) return false;
-    if (q && !`${j.jobNumber} ${j.orderNumber} ${j.fabricName} ${j.machineCode ?? ''}`.toLowerCase().includes(q.toLowerCase())) return false;
+    // search also matches the assigned operator + supervisor by name
+    if (q && !`${j.jobNumber} ${j.orderNumber} ${j.fabricName} ${j.machineCode ?? ''} ${j.operatorName ?? ''} ${j.supervisorName ?? ''}`.toLowerCase().includes(q.toLowerCase())) return false;
+    if (fromMs != null && toMs != null) {
+      const t = j.createdAt ? new Date(j.createdAt).getTime() : null;
+      if (t == null || t < fromMs || t > toMs) return false;
+    }
     return true;
   });
 
@@ -52,7 +63,8 @@ export default function JobTracking() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / JOBS_PAGE));
   const safePage = Math.min(page, totalPages);
   const pageJobs = filtered.slice((safePage - 1) * JOBS_PAGE, safePage * JOBS_PAGE);
-  useEffect(() => { setPage(1); }, [q, status]);
+  useEffect(() => { setPage(1); }, [q, status, dateFrom, dateTo]);
+  const fmtAllot = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
   return (
     <div style={{ padding: '0 28px 40px' }}>
@@ -75,6 +87,9 @@ export default function JobTracking() {
           <option value="inProgress">In Progress</option>
           <option value="completed">Completed</option>
         </select>
+        <label style={dateWrap} title="Allotted from"><span style={dateLbl}>FROM</span><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={dateInput} /></label>
+        <label style={dateWrap} title="Allotted to (optional)"><span style={dateLbl}>TO</span><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={dateInput} /></label>
+        {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(''); setDateTo(''); }} style={{ border: 'none', background: 'none', color: 'var(--brand)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Clear dates</button>}
         {canCreate && <button onClick={() => setShowCreate(true)} style={primaryBtn}><Plus size={16} /> Create Job</button>}
       </div>
 
@@ -82,7 +97,7 @@ export default function JobTracking() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: 'var(--text-faint)', fontSize: 11, background: 'var(--surface-2)' }}>
-              <th style={th}>JOB</th><th style={th}>ORDER</th><th style={th}>FABRIC</th><th style={th}>STAGE</th>
+              <th style={th}>JOB</th><th style={th}>ORDER</th><th style={th}>FABRIC</th><th style={th}>STAGE</th><th style={th}>ASSIGNED TO</th>
               <th style={thR}>TARGET</th><th style={thR}>ACHIEVED</th><th style={{ ...th, width: 140 }}>PROGRESS</th><th style={th}>STATUS</th><th style={thR}>ACTION</th>
             </tr>
           </thead>
@@ -93,6 +108,15 @@ export default function JobTracking() {
                 <td style={td}>{j.orderNumber}</td>
                 <td style={td}>{j.fabricName}</td>
                 <td style={{ ...td, color: 'var(--text-muted)' }}>{j.stage}</td>
+                <td style={td}>
+                  {j.operatorName || j.supervisorName ? (
+                    <div style={{ lineHeight: 1.35 }}>
+                      <div style={{ fontWeight: 700 }}>{j.operatorName ?? '—'}</div>
+                      {j.supervisorName && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>under {j.supervisorName}</div>}
+                      {j.createdAt && <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>allotted {fmtAllot(j.createdAt)}</div>}
+                    </div>
+                  ) : <span style={{ color: 'var(--text-faint)' }}>Unassigned</span>}
+                </td>
                 <td style={tdR} className="mono">{j.targetProduction.toLocaleString()}</td>
                 <td style={tdR} className="mono">{j.achievedProduction.toLocaleString()}</td>
                 <td style={td}>
@@ -108,7 +132,7 @@ export default function JobTracking() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: 'var(--text-muted)', padding: 30 }}>No jobs match.</td></tr>
+              <tr><td colSpan={10} style={{ ...td, textAlign: 'center', color: 'var(--text-muted)', padding: 30 }}>No jobs match.</td></tr>
             )}
           </tbody>
         </table>
@@ -289,5 +313,8 @@ const jobsPagerBtn = (disabled: boolean): React.CSSProperties => ({
   color: disabled ? 'var(--text-faint)' : 'var(--brand)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1,
 });
 const fullInput: React.CSSProperties = { ...inputStyle, width: '100%' };
+const dateWrap: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-strong)', borderRadius: 10, padding: '4px 10px', background: 'var(--surface)' };
+const dateLbl: React.CSSProperties = { fontSize: 10, fontWeight: 800, letterSpacing: '.05em', color: 'var(--text-faint)' };
+const dateInput: React.CSSProperties = { border: 'none', background: 'none', fontSize: 13, color: 'var(--text)', outline: 'none' };
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(20,28,46,.45)', display: 'grid', placeItems: 'start center', paddingTop: '6vh', zIndex: 50, backdropFilter: 'blur(2px)' };
 const modal: React.CSSProperties = { width: 'min(640px,94vw)', maxHeight: '86vh', overflowY: 'auto', padding: 24, animation: 'fadeUp .25s ease' };
