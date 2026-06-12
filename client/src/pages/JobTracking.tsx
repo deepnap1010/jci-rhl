@@ -22,7 +22,7 @@ const STATUS_STYLE: Record<string, [string, string, string]> = {
 const JOBS_PAGE = 10; // jobs per page in the Production Jobs table
 function JobStatus({ status }: { status: string }) {
   const [bg, fg, label] = STATUS_STYLE[status] ?? ['var(--surface-2)', 'var(--text-muted)', status];
-  return <span style={{ background: bg, color: fg, borderRadius: 99, padding: '3px 11px', fontSize: 12, fontWeight: 700 }}>{label}</span>;
+  return <span style={{ display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap', background: bg, color: fg, borderRadius: 99, padding: '4px 12px', fontSize: 12, fontWeight: 700, lineHeight: 1.2 }}>{label}</span>;
 }
 
 export default function JobTracking() {
