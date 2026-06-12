@@ -4,8 +4,8 @@
 //  machines. Managers can reassign who reports to whom (within
 //  their team) right here via the "Reports to" control.
 // ============================================================
-import { useState } from 'react';
-import { ChevronRight, ChevronDown, Cpu, Pencil } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronRight, ChevronDown, Cpu, Pencil, Search, X } from 'lucide-react';
 import { useOrg } from '../hooks/useData';
 import type { OrgNode } from '../hooks/useData';
 import { ROLE_LABELS } from '../config/nav';
@@ -21,6 +21,7 @@ const ROLE_COLOR: Record<string, string> = {
 };
 
 interface Person { id: string; name: string; role: string }
+type SearchCtx = { searching: boolean; q: string; matchIds: Set<string>; openIds: Set<string>; visibleIds: Set<string> };
 
 function flatten(nodes: OrgNode[], out: Person[] = []): Person[] {
   for (const n of nodes) { out.push({ id: n.id, name: n.name, role: n.role }); flatten(n.children, out); }
@@ -39,6 +40,27 @@ export default function Org() {
   const viewerLabel = data.viewerRole ? (ROLE_LABELS[data.viewerRole as Role] ?? data.viewerRole) : '';
   const isAdmin = data.viewerRole === 'superAdmin' || data.viewerRole === 'admin';
   const everyone = flatten(nodes);
+  const [query, setQuery] = useState('');
+
+  // search → reveal each match with its full subtree (expanded) plus the path of managers above it
+  const search: SearchCtx = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const matchIds = new Set<string>(), openIds = new Set<string>(), visibleIds = new Set<string>();
+    if (!q) return { searching: false, q, matchIds, openIds, visibleIds };
+    const matches = (n: OrgNode) => `${n.name} ${ROLE_LABELS[n.role as Role] ?? n.role} ${n.department || ''}`.toLowerCase().includes(q);
+    const walk = (n: OrgNode, ancestors: string[]) => {
+      if (matches(n)) {
+        matchIds.add(n.id);
+        ancestors.forEach((a) => { visibleIds.add(a); openIds.add(a); });    // reveal the path above
+        const addDesc = (d: OrgNode) => { visibleIds.add(d.id); openIds.add(d.id); d.children.forEach(addDesc); };
+        addDesc(n);                                                            // show the match + whole subtree, expanded
+      }
+      n.children.forEach((c) => walk(c, [...ancestors, n.id]));
+    };
+    nodes.forEach((n) => walk(n, []));
+    return { searching: true, q, matchIds, openIds, visibleIds };
+  }, [query, nodes]);
+  const noMatches = search.searching && search.matchIds.size === 0;
 
   async function reassign(userId: string, managerId: string) {
     try {
@@ -52,18 +74,36 @@ export default function Org() {
 
   return (
     <div style={{ padding: '0 28px 40px' }}>
-      <div style={{ marginBottom: 14, color: 'var(--text-muted)', fontSize: 13 }}>
-        Click a person to expand their team. {viewerLabel && <>You are viewing as <b style={{ color: 'var(--text)' }}>{viewerLabel}</b>.</>} Use the ✎ to change who someone reports to.
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: 380 }}>
+          <Search size={15} style={{ position: 'absolute', left: 11, top: 11, color: 'var(--text-faint)' }} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a person by name, role or department…"
+            style={{ width: '100%', padding: '9px 32px 9px 34px', borderRadius: 10, border: '1px solid var(--border-strong)', fontSize: 13, background: 'var(--surface)' }}
+          />
+          {query && (
+            <button onClick={() => setQuery('')} aria-label="Clear" style={{ position: 'absolute', right: 8, top: 8, border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-faint)' }}><X size={15} /></button>
+          )}
+        </div>
+        <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+          {search.searching
+            ? `${search.matchIds.size} match${search.matchIds.size === 1 ? '' : 'es'} — showing each with their full team`
+            : <>Click a person to expand their team. {viewerLabel && <>Viewing as <b style={{ color: 'var(--text)' }}>{viewerLabel}</b>.</>} Use ✎ to change who someone reports to.</>}
+        </span>
       </div>
       {nodes.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
           No team members to show yet — assign people a manager in User Management, or use ✎ here.
         </div>
+      ) : noMatches ? (
+        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No one matches “{query}”.</div>
       ) : (
         <div className="card" style={{ padding: 12 }}>
           {nodes.map((n) => (
             <Node key={n.id} node={n} depth={0} parentId="" defaultOpen={nodes.length <= 3}
-              everyone={everyone} isAdmin={isAdmin} onReassign={reassign} />
+              everyone={everyone} isAdmin={isAdmin} onReassign={reassign} search={search} />
           ))}
         </div>
       )}
@@ -71,12 +111,17 @@ export default function Org() {
   );
 }
 
-function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassign }: {
+function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassign, search }: {
   node: OrgNode; depth: number; parentId: string; defaultOpen?: boolean;
-  everyone: Person[]; isAdmin: boolean; onReassign: (userId: string, managerId: string) => void;
+  everyone: Person[]; isAdmin: boolean; onReassign: (userId: string, managerId: string) => void; search: SearchCtx;
 }) {
-  const [open, setOpen] = useState(!!defaultOpen);
+  const [localOpen, setLocalOpen] = useState(!!defaultOpen);
   const [editing, setEditing] = useState(false);
+  // while searching, hide branches with no match and force-open the revealed path/subtree
+  if (search.searching && !search.visibleIds.has(node.id)) return null;
+  const open = search.searching ? search.openIds.has(node.id) : localOpen;
+  const setOpen = (fn: (o: boolean) => boolean) => { if (!search.searching) setLocalOpen(fn); };
+  const isMatch = search.matchIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const showMachines = node.machines.length > 0 && (node.role === 'operator' || !hasChildren);
   const expandable = hasChildren || showMachines;
@@ -94,7 +139,8 @@ function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassig
         style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10,
           marginLeft: depth * 22, cursor: expandable ? 'pointer' : 'default',
-          background: open && expandable ? 'var(--surface-2)' : 'transparent',
+          background: isMatch ? 'rgba(59,91,253,.10)' : open && expandable ? 'var(--surface-2)' : 'transparent',
+          boxShadow: isMatch ? 'inset 0 0 0 1.5px var(--brand)' : undefined,
         }}
       >
         <span style={{ width: 18, color: 'var(--text-faint)' }}>
@@ -104,7 +150,7 @@ function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassig
           {initials(node.name)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>{node.name}</div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: isMatch ? 'var(--brand)' : undefined }}>{node.name}</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             <span style={{ color, fontWeight: 700 }}>{roleLabel}</span>
             {node.department ? ` · ${node.department}` : ''}
@@ -142,7 +188,7 @@ function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassig
       )}
 
       {open && hasChildren && node.children.map((c) => (
-        <Node key={c.id} node={c} depth={depth + 1} parentId={node.id} everyone={everyone} isAdmin={isAdmin} onReassign={onReassign} />
+        <Node key={c.id} node={c} depth={depth + 1} parentId={node.id} everyone={everyone} isAdmin={isAdmin} onReassign={onReassign} search={search} />
       ))}
 
       {open && showMachines && (
