@@ -156,6 +156,20 @@ function DowntimeCardView({ m }: { m: Card & { idleCount?: number; stoppedCount?
         </div>
       </div>
 
+      {/* most recent idle/stopped spell — so a machine never just reads "0" when it has been down */}
+      {m.lastSpell ? (
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)' }}>
+          Last downtime:{' '}
+          <b style={{ color: m.lastSpell.type === 'stopped' ? 'var(--stopped)' : 'var(--idle)' }}>
+            {m.lastSpell.type === 'stopped' ? 'Stopped' : 'Idle'} {fmtDuration(m.lastSpell.durationSec)}
+          </b>
+          {' · '}
+          {new Date(m.lastSpell.ts).toLocaleString('en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+        </div>
+      ) : (
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--running)' }}>No downtime in the last 24h ✓</div>
+      )}
+
       <button
         onClick={toggle}
         style={{ marginTop: 12, width: '100%', textAlign: 'left', border: 'none', background: 'none', color: 'var(--brand)', fontWeight: 700, fontSize: 13, padding: 0 }}

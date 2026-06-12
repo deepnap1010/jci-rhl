@@ -250,6 +250,9 @@ export interface DowntimeCard {
   idleSec: number;
   stoppedSec: number;
   eventCount: number;
+  idleCount?: number;
+  stoppedCount?: number;
+  lastSpell?: { type: 'idle' | 'stopped'; durationSec: number; ts: string } | null;
   events: DowntimeEventRow[];
 }
 
