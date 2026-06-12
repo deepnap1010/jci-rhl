@@ -62,3 +62,10 @@ export function scopeOf(role: Role | null | undefined): ScopeKind {
 export function assignableBy(role: Role | null | undefined): Role[] {
   return role ? ROLE_CAPS[role]?.assignsTo ?? [] : [];
 }
+
+// org hierarchy: can `reportRole` report to `managerRole`? (a manager may only manage the level
+// directly below it, per assignsTo). e.g. a plantHead can report to superAdmin, never to a plantHead.
+export function canReportTo(reportRole: Role | null | undefined, managerRole: Role | null | undefined): boolean {
+  if (!reportRole || !managerRole) return false;
+  return assignableBy(managerRole).includes(reportRole);
+}

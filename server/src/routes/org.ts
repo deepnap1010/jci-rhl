@@ -14,6 +14,13 @@ import { MachineModel } from '../models/Machine';
 import { departmentFor } from '../lib/derive';
 import { subtreeIds } from '../lib/orgTree';
 import { notifyUser } from '../lib/userNotify';
+import { canReportTo, assignableBy } from '@shared/permissions';
+import type { Role } from '@shared/types';
+
+const ROLE_LABEL: Record<string, string> = {
+  superAdmin: 'Super Admin', admin: 'Admin', plantHead: 'Production Head',
+  prodManager: 'Production Manager', supervisor: 'Supervisor', operator: 'Operator', employee: 'Employee',
+};
 
 const router = Router();
 
@@ -131,6 +138,20 @@ router.patch('/api/org/manager', async (req, res) => {
     if (managerId) {
       const below = await subtreeIds(userId);
       if (below.has(managerId)) return res.status(400).json({ error: 'That would create a reporting loop' });
+
+      // enforce the role hierarchy: a manager may only manage the level directly below it
+      // (e.g. a Production Head reports to Super Admin, never to another Production Head).
+      const mgr = await UserModel.findById(managerId).select('role').lean();
+      const targetRole = String(target.get('role')) as Role;
+      const mgrRole = (mgr as { role?: string } | null)?.role as Role | undefined;
+      if (!canReportTo(targetRole, mgrRole)) {
+        const allowed = ['superAdmin', 'admin', 'plantHead', 'prodManager', 'supervisor']
+          .filter((r) => assignableBy(r as Role).includes(targetRole))
+          .map((r) => ROLE_LABEL[r]);
+        return res.status(400).json({
+          error: `A ${ROLE_LABEL[targetRole] || targetRole} can't report to a ${ROLE_LABEL[mgrRole || ''] || mgrRole}. They report to: ${allowed.join(' / ') || 'Super Admin'}.`,
+        });
+      }
     }
 
     const oldManagerId = target.get('managerId') ? String(target.get('managerId')) : null;

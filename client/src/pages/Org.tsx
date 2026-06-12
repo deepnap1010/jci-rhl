@@ -10,6 +10,7 @@ import { useOrg } from '../hooks/useData';
 import type { OrgNode } from '../hooks/useData';
 import { ROLE_LABELS } from '../config/nav';
 import type { Role } from '@shared/types';
+import { canReportTo } from '@shared/permissions';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast';
 
@@ -83,7 +84,8 @@ function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassig
   const color = ROLE_COLOR[node.role] ?? '#94a3b8';
   const canEdit = isAdmin || depth > 0; // managers reassign their reports; admins anyone
   const blocked = descendantIds(node); // can't report to self or a descendant (loop)
-  const candidates = everyone.filter((p) => !blocked.has(p.id));
+  // only valid managers per the hierarchy (a Production Head reports to Super Admin, not another head)
+  const candidates = everyone.filter((p) => !blocked.has(p.id) && canReportTo(node.role as Role, p.role as Role));
 
   return (
     <div>
