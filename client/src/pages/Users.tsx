@@ -5,7 +5,7 @@
 //  with enable/disable, reset-password and delete actions.
 // ============================================================
 import { useState, useEffect, useCallback } from 'react';
-import { UserPlus, RefreshCw, Trash2, KeyRound, Shuffle, Clock, AlertTriangle, RotateCcw, X, History } from 'lucide-react';
+import { UserPlus, RefreshCw, Trash2, KeyRound, Shuffle, Clock, AlertTriangle, RotateCcw, X, History, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api/client';
 import { inputStyle } from '../components/ui';
 import { ASSIGNABLE_ROLES, ROLE_LABELS } from '../config/nav';
@@ -29,6 +29,9 @@ interface UserRow {
   name: string;
   email: string;
   role: Role;
+  assignedMachineIds: string[];
+  assignedLines: string[];
+  managerId: string | null;
   isActive: boolean;
   mustChangePassword: boolean;
   suspendedUntil: string | null; // ISO date while temporarily deleted
@@ -59,6 +62,7 @@ export default function Users() {
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [delTarget, setDelTarget] = useState<UserRow | null>(null); // user being deleted (opens modal)
+  const [editTarget, setEditTarget] = useState<UserRow | null>(null); // user being edited (opens modal)
   const [showHistory, setShowHistory] = useState(false); // Users History popup
 
   const load = useCallback(async () => {
@@ -242,7 +246,11 @@ export default function Users() {
                 <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>No users yet.</td></tr>
               ) : rows.map((u) => (
                 <tr key={u._id} style={{ borderTop: '1px solid var(--border, #eee)' }}>
-                  <td style={td}>{u.name}</td>
+                  <td style={td}>
+                    {u.role === 'superAdmin'
+                      ? u.name
+                      : <button onClick={() => setEditTarget(u)} style={linkBtn} title="Edit configuration">{u.name}</button>}
+                  </td>
                   <td style={td}>{u.email}</td>
                   <td style={td}>{ROLE_LABELS[u.role] ?? u.role}</td>
                   <td style={td}>
@@ -272,6 +280,7 @@ export default function Users() {
                         ) : (
                           <button onClick={() => toggleActive(u)} style={smallBtn}>{u.isActive ? 'Disable' : 'Enable'}</button>
                         )}
+                        <button onClick={() => setEditTarget(u)} style={iconBtn} title="Edit configuration (role, manager, machines)"><SlidersHorizontal size={15} /></button>
                         <button onClick={() => resetPassword(u)} style={iconBtn} title="Reset password"><KeyRound size={15} /></button>
                         <button onClick={() => setDelTarget(u)} style={{ ...iconBtn, color: '#b91c1c' }} title="Delete"><Trash2 size={15} /></button>
                       </div>
@@ -283,6 +292,16 @@ export default function Users() {
           </table>
         </div>
       </div>
+
+      {editTarget && (
+        <EditUserModal
+          user={editTarget}
+          allUsers={rows}
+          machineOpts={machineOpts}
+          onClose={() => setEditTarget(null)}
+          onDone={(text) => { setEditTarget(null); setMsg({ kind: 'ok', text }); load(); }}
+        />
+      )}
 
       {delTarget && (
         <DeleteUserModal
@@ -475,6 +494,99 @@ function DeleteUserModal({ user, onClose, onDone }: { user: UserRow; onClose: ()
   );
 }
 
+// ============================================================
+//  EDIT MODAL  —  change role, manager and scope (machines/lines)
+//  Reuses the same scope rules as the create form; saves via PATCH.
+// ============================================================
+function EditUserModal({ user, allUsers, machineOpts, onClose, onDone }: {
+  user: UserRow; allUsers: UserRow[]; machineOpts: string[];
+  onClose: () => void; onDone: (msg: string) => void;
+}) {
+  const [name, setName] = useState(user.name);
+  const [role, setRole] = useState<Role>(user.role);
+  const [managerId, setManagerId] = useState(user.managerId || '');
+  const [lines, setLines] = useState<string[]>(user.assignedLines || []);
+  const [machineIds, setMachineIds] = useState<string[]>(user.assignedMachineIds || []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const scopeKind = scopeOf(role); // 'all' | 'lines' | 'machines' | 'own'
+
+  async function save() {
+    if (!name.trim()) { setError('Name is required.'); return; }
+    setBusy(true); setError('');
+    try {
+      await api.patch(`/api/users/${user._id}`, {
+        name: name.trim(),
+        role,
+        managerId: managerId || null,
+        assignedLines: scopeKind === 'lines' ? lines : [],
+        assignedMachineIds: scopeKind === 'machines' || scopeKind === 'own' ? machineIds : [],
+      });
+      onDone(`${name.trim()}'s configuration was updated.`);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to update user.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...modalCard, maxWidth: 560 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <button onClick={onClose} style={closeX} aria-label="Close"><X size={18} /></button>
+        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Edit user</div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 18 }}><span className="mono">{user.email}</span></div>
+
+        <div style={{ display: 'grid', gap: 14 }}>
+          <Field label="Full name">
+            <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Field label="Role">
+              <select style={inputStyle} value={role} onChange={(e) => { setRole(e.target.value as Role); setManagerId(''); setLines([]); setMachineIds([]); }}>
+                {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+              </select>
+            </Field>
+            <Field label="Reports to (manager)">
+              <select style={inputStyle} value={managerId} onChange={(e) => setManagerId(e.target.value)}>
+                <option value="">— none —</option>
+                {allUsers
+                  .filter((u) => u._id !== user._id && (MANAGER_ROLES[role] ?? []).includes(u.role))
+                  .map((u) => <option key={u._id} value={u._id}>{u.name} ({ROLE_LABELS[u.role] ?? u.role})</option>)}
+              </select>
+            </Field>
+          </div>
+
+          {scopeKind === 'all' && (
+            <div style={{ fontSize: 12.5, color: '#6b7280', background: '#f6f7f9', borderRadius: 8, padding: '8px 10px' }}>
+              {ROLE_LABELS[role]} sees the whole plant — no machine/line scoping needed.
+            </div>
+          )}
+          {scopeKind === 'lines' && (
+            <div>
+              <div style={scopeLbl}>Assigned lines — this {ROLE_LABELS[role]} sees only these departments</div>
+              <ChipPicker options={[...DEPARTMENTS]} selected={lines} onToggle={(v) => setLines((t) => t.includes(v) ? t.filter((x) => x !== v) : [...t, v])} />
+            </div>
+          )}
+          {(scopeKind === 'machines' || scopeKind === 'own') && (
+            <div>
+              <div style={scopeLbl}>Assigned machines — this {ROLE_LABELS[role]} sees only these machines</div>
+              {machineOpts.length === 0
+                ? <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>No machines available.</div>
+                : <ChipPicker options={machineOpts} selected={machineIds} onToggle={(v) => setMachineIds((t) => t.includes(v) ? t.filter((x) => x !== v) : [...t, v])} />}
+            </div>
+          )}
+
+          {error && <div style={errBox}>{error}</div>}
+          <div style={footRow}>
+            <button onClick={onClose} style={ghostBtn} disabled={busy}>Cancel</button>
+            <button onClick={save} style={{ ...primaryBtn, opacity: busy ? 0.7 : 1 }} disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // tiny local label wrapper (avoids importing from JobTracking)
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -517,6 +629,7 @@ const td: React.CSSProperties = { padding: '12px 20px' };
 const badge: React.CSSProperties = { padding: '3px 9px', borderRadius: 99, fontSize: 12, fontWeight: 700 };
 const primaryBtn: React.CSSProperties = { background: 'var(--brand, #3b5bfd)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer' };
 const smallBtn: React.CSSProperties = { background: 'var(--surface-2, #f3f4f6)', border: '1px solid var(--border, #e5e7eb)', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: 'var(--text, #1f2937)' };
+const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--brand, #3b5bfd)', cursor: 'pointer', textAlign: 'left' };
 const iconBtn: React.CSSProperties = { background: 'var(--surface-2, #f3f4f6)', border: '1px solid var(--border, #e5e7eb)', borderRadius: 8, padding: '7px 9px', cursor: 'pointer', display: 'grid', placeItems: 'center', color: 'inherit' };
 const historyBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--surface-2, #f3f4f6)', border: '1px solid var(--border, #e5e7eb)', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', color: 'var(--text, #1f2937)' };
 
