@@ -53,8 +53,12 @@ export default function History() {
     const p: Record<string, string> = {};
     if (applied.machineId) p.machineId = applied.machineId;
     if (applied.status) p.status = applied.status;
-    const from = toISO(applied.dateFrom, applied.timeFrom, false);
-    const to = toISO(applied.dateTo, applied.timeTo, true);
+    // a single date + a time range should bound WITHIN that day: if one date is blank, reuse the
+    // other so "Time To" isn't silently dropped (which left the range open-ended).
+    const fromDate = applied.dateFrom || applied.dateTo;
+    const toDate = applied.dateTo || applied.dateFrom;
+    const from = toISO(fromDate, applied.timeFrom, false);
+    const to = toISO(toDate, applied.timeTo, true);
     if (from) p.from = from;
     if (to) p.to = to;
     return p;
@@ -119,7 +123,11 @@ export default function History() {
   const chips: { key: string; label: string; onRemove: () => void }[] = [];
   if (applied.machineId) chips.push({ key: 'm', label: `Machine: ${applied.machineId}`, onRemove: () => clearKeys('machineId') });
   if (applied.status) chips.push({ key: 's', label: `Status: ${cap(applied.status)}`, onRemove: () => clearKeys('status') });
-  if (applied.dateFrom || applied.dateTo) chips.push({ key: 'd', label: `Date: ${applied.dateFrom || '…'} → ${applied.dateTo || '…'}`, onRemove: () => clearKeys('dateFrom', 'dateTo') });
+  if (applied.dateFrom || applied.dateTo) {
+    const a = applied.dateFrom, b = applied.dateTo;
+    const dLabel = a && b ? (a === b ? `Date: ${a}` : `Date: ${a} → ${b}`) : `Date: ${a || b}`; // single date when only one set
+    chips.push({ key: 'd', label: dLabel, onRemove: () => clearKeys('dateFrom', 'dateTo') });
+  }
   if (applied.timeFrom || applied.timeTo) chips.push({ key: 't', label: `Time: ${applied.timeFrom || '…'} → ${applied.timeTo || '…'}`, onRemove: () => clearKeys('timeFrom', 'timeTo') });
   if (deferredSearch.trim()) chips.push({ key: 'q', label: `Search: "${deferredSearch.trim()}"`, onRemove: () => setSearch('') });
 
@@ -133,8 +141,8 @@ export default function History() {
       const params: Record<string, string> = { limit: '1000' };
       if (applied.machineId) params.machineId = applied.machineId;
       if (applied.status) params.status = applied.status;
-      const from = toISO(applied.dateFrom, applied.timeFrom, false);
-      const to = toISO(applied.dateTo, applied.timeTo, true);
+      const from = toISO(applied.dateFrom || applied.dateTo, applied.timeFrom, false);
+      const to = toISO(applied.dateTo || applied.dateFrom, applied.timeTo, true);
       if (from) params.from = from;
       if (to) params.to = to;
       const res = await api.get<Resp>('/api/history', { params }); // no `page` → legacy single-shot path
