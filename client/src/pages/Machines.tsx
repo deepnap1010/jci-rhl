@@ -589,6 +589,12 @@ function HistoryModal({ m, from, to, onClose }: { m: MachineWithState; from?: st
   const [pages, setPages] = useState(1);
   const fields = m.machineType?.fields ?? [];
   const ranged = !!(from && to);
+  const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const rangeLbl = ranged ? (fmtDay(from!) === fmtDay(to!) ? fmtDay(from!) : `${fmtDay(from!)} → ${fmtDay(to!)}`) : '';
+  // the newest reading actually present in the window (rows are sorted newest-first) vs the range end
+  const dayShort = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  const latestInWindow = ranged && rows.length ? dayShort(rows[0].ts) : '';
+  const reportsShort = ranged && latestInWindow && latestInWindow !== dayShort(to!);
 
   // when the page's date filter is active, scope history to that day too (so the modal matches the card)
   useEffect(() => { setPage(1); }, [from, to]);
@@ -618,8 +624,13 @@ function HistoryModal({ m, from, to, onClose }: { m: MachineWithState; from?: st
           <button onClick={onClose} style={{ border: 'none', background: 'none' }}><X size={20} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
-          {m.name} · {total.toLocaleString()} readings{ranged ? ` on ${new Date(from!).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''} · {HIST_PAGE}/page · click “Show details” for that moment's full data
+          {m.name} · {total.toLocaleString()} readings{ranged ? ` · ${rangeLbl}` : ''} · {HIST_PAGE}/page · click “Show details” for that moment's full data
         </div>
+        {total > 0 && reportsShort && (
+          <div style={{ fontSize: 12, color: 'var(--idle)', background: '#fff7ed', borderRadius: 8, padding: '7px 10px', marginBottom: 12 }}>
+            ⚠ This machine last reported on {latestInWindow} within the selected range — no readings after that.
+          </div>
+        )}
         {loading ? (
           <div style={{ color: 'var(--text-muted)', padding: 24, textAlign: 'center' }}>Loading…</div>
         ) : rows.length === 0 ? (
