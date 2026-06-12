@@ -38,6 +38,9 @@ export default function Dashboard() {
   const asOfLabel = kpi?.lastUpdated
     ? new Date(kpi.lastUpdated).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
     : '';
+  const asOfDate = kpi?.lastUpdated ? new Date(kpi.lastUpdated).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '';
+  // label used in the drill-down titles: a date range, the last recorded day, or "today" when live
+  const modalPeriod = ranged ? periodShort : stale ? asOfDate : 'today';
   const { machines } = useMachines();
   const { data: jobs } = useJobs();
   const people = usePeople();
@@ -164,8 +167,8 @@ export default function Dashboard() {
       {deptModal && (
         <DeptDetailModal mode={deptModal} deptStats={deptStats} machines={machines} onClose={() => setDeptModal(null)} />
       )}
-      {timeModal && <TimeBreakdownModal metric={timeModal} breakdown={kpi?.machineBreakdown ?? []} period={ranged ? periodShort : 'today'} onClose={() => setTimeModal(null)} />}
-      {kpiModal && <KpiDetailModal kind={kpiModal} breakdown={kpi?.machineBreakdown ?? []} jobs={jobs} people={people} period={ranged ? periodShort : 'today'} onClose={() => setKpiModal(null)} />}
+      {timeModal && <TimeBreakdownModal metric={timeModal} breakdown={kpi?.machineBreakdown ?? []} period={modalPeriod} onClose={() => setTimeModal(null)} />}
+      {kpiModal && <KpiDetailModal kind={kpiModal} breakdown={kpi?.machineBreakdown ?? []} jobs={jobs} people={people} period={modalPeriod} onClose={() => setKpiModal(null)} />}
     </div>
   );
 }
