@@ -36,7 +36,7 @@ const COUNTERS = {
 type DayRow = { _id: { m: string; d: Date }; prod: number; run: number; idle: number; stop: number };
 type BaseRow = { _id: string; prod: number; run: number; idle: number; stop: number };
 
-async function windowMetrics(ids: string[], from: Date, to: Date): Promise<Map<string, Cum>> {
+export async function windowMetrics(ids: string[], from: Date, to: Date): Promise<Map<string, Cum>> {
   const project = { prod: lastOf(COUNTERS.prod), run: lastOf(COUNTERS.run), idle: lastOf(COUNTERS.idle), stop: lastOf(COUNTERS.stop) };
   // last reading per (machine, IST day) within the window + last reading just before the window
   const [dayRows, baseRows] = await Promise.all([

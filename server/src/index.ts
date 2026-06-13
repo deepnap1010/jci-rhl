@@ -32,6 +32,7 @@ import notificationsRoute from './routes/notifications';
 import downtimeReportsRoute from './routes/downtimeReports';
 import tasksRoute from './routes/tasks';
 import orgRoute from './routes/org';
+import aiRoute from './routes/ai';
 import { sweepEscalations } from './lib/escalation';
 
 const app = express();
@@ -103,6 +104,7 @@ app.use(notificationsRoute);
 app.use(downtimeReportsRoute);
 app.use(tasksRoute);
 app.use(orgRoute);
+app.use(aiRoute);
 
 // ─── 404 + centralized error handling ───────────────────────
 // Anything unmatched returns clean JSON instead of Express's HTML page.

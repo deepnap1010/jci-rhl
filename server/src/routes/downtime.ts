@@ -18,7 +18,7 @@ type DowntimeAgg = { idleSec: number; stoppedSec: number; idleCount: number; sto
 const dtCache = new Map<string, { at: number; map: Map<string, DowntimeAgg> }>();
 const DT_TTL_MS = 15_000;
 
-async function downtimeByMachine(ids: string[], from: Date, to: Date, cacheTag: string): Promise<Map<string, DowntimeAgg>> {
+export async function downtimeByMachine(ids: string[], from: Date, to: Date, cacheTag: string): Promise<Map<string, DowntimeAgg>> {
   const key = `${cacheTag}|${ids.join(',')}`;
   const hit = dtCache.get(key);
   if (hit && Date.now() - hit.at < DT_TTL_MS) return hit.map;
