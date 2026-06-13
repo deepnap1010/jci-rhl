@@ -143,12 +143,16 @@ router.get('/api/downtime', async (req, res) => {
 // reconstructed from the telemetry status field over the last 24h.
 router.get('/api/downtime/:machineId/events', async (req, res) => {
   try {
-    const since = new Date(Date.now() - 24 * 3600 * 1000);
-    // Collapse 24h of readings into status "runs" (one row per status CHANGE) on the database:
+    // window matches the card (the page passes its from/to). Defaults to the last 24h.
+    const f = req.query.from ? new Date(String(req.query.from)) : null;
+    const t = req.query.to ? new Date(String(req.query.to)) : null;
+    const since = f && !isNaN(f.getTime()) ? f : new Date(Date.now() - 24 * 3600 * 1000);
+    const until = t && !isNaN(t.getTime()) ? t : new Date();
+    // Collapse the window's readings into status "runs" (one row per status CHANGE) on the database:
     // tag each reading with a runId (cumulative count of status changes), then group. We transfer
     // a few dozen boundaries instead of thousands of readings — the heavy scan stays in Mongo.
     const runs = await TelemetryModel.aggregate([
-      { $match: { machineId: req.params.machineId, serverTs: { $gte: since } } },
+      { $match: { machineId: req.params.machineId, serverTs: { $gte: since, $lte: until } } },
       { $project: { serverTs: 1, status: { $toLower: { $ifNull: ['$data.status', ''] } } } },
       { $setWindowFields: { sortBy: { serverTs: 1 }, output: {
           prev: { $shift: { output: '$status', by: -1 } },

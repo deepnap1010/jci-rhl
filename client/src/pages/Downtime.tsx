@@ -120,7 +120,7 @@ export default function Downtime() {
             {cards.length > 0 && hideZero ? 'No machines had downtime in this window. Untick “Hide no-downtime” to see all.' : 'No machines match these filters.'}
           </div>
         ) : (
-          visibleCards.map((m) => <DowntimeCardView key={m._id} m={m} winLabel={winLabel} noDownText={noDownText} />)
+          visibleCards.map((m) => <DowntimeCardView key={m._id} m={m} winLabel={winLabel} noDownText={noDownText} from={data.windowStart} to={data.windowEnd} />)
         )}
       </div>
     </div>
@@ -132,7 +132,7 @@ function Lbl({ label, children }: { label: string; children: React.ReactNode }) 
 }
 const ctrl: React.CSSProperties = { ...inputStyle };
 
-function DowntimeCardView({ m, winLabel, noDownText }: { m: Card & { idleCount?: number; stoppedCount?: number }; winLabel: string; noDownText: string }) {
+function DowntimeCardView({ m, winLabel, noDownText, from, to }: { m: Card & { idleCount?: number; stoppedCount?: number }; winLabel: string; noDownText: string; from?: string; to?: string }) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState<DowntimeEventRow[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -143,7 +143,7 @@ function DowntimeCardView({ m, winLabel, noDownText }: { m: Card & { idleCount?:
     if (next && events === null) {
       setLoading(true);
       try {
-        const r = await api.get<{ events: DowntimeEventRow[] }>(`/api/downtime/${m.code}/events`);
+        const r = await api.get<{ events: DowntimeEventRow[] }>(`/api/downtime/${m.code}/events`, { params: from && to ? { from, to } : {} });
         setEvents(r.data.events || []);
       } catch {
         setEvents([]);
@@ -204,7 +204,7 @@ function DowntimeCardView({ m, winLabel, noDownText }: { m: Card & { idleCount?:
           {loading ? (
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading events…</div>
           ) : !events || events.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No idle/stopped spells in the last 24h.</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No idle/stopped spells {noDownText}.</div>
           ) : (
             events.map((e) => (
               <div key={e._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '5px 0' }}>
