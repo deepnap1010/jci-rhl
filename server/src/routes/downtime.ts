@@ -17,6 +17,8 @@ type Spell = { type: 'idle' | 'stopped'; durationSec: number; ts: Date };
 type DowntimeAgg = { idleSec: number; stoppedSec: number; idleCount: number; stoppedCount: number; lastSpell: Spell | null };
 const dtCache = new Map<string, { at: number; map: Map<string, DowntimeAgg> }>();
 const DT_TTL_MS = 15_000;
+const STALE_MS = 5 * 60 * 1000;       // feed older than this → fall back to the last recorded day
+const IST_OFFSET = 5.5 * 3600 * 1000; // factory-local day boundary
 
 export async function downtimeByMachine(ids: string[], from: Date, to: Date, cacheTag: string): Promise<Map<string, DowntimeAgg>> {
   const key = `${cacheTag}|${ids.join(',')}`;
@@ -56,17 +58,38 @@ router.get('/api/downtime', async (req, res) => {
     const f = req.query.from ? new Date(String(req.query.from)) : null;
     const t = req.query.to ? new Date(String(req.query.to)) : null;
     const range = f && t && !isNaN(f.getTime()) && !isNaN(t.getTime()) ? { from: f, to: t } : null;
-    const latest = range ? await latestByMachineInWindow(range.from, range.to) : undefined;
+
+    // window: a selected range, else the last 24h — but if the live feed is stale (no data today),
+    // fall back to the last day that DOES have data so the page isn't a wall of zeros.
+    let since = range ? range.from : new Date(Date.now() - 24 * 3600 * 1000);
+    let until = range ? range.to : new Date();
+    let latest = range ? await latestByMachineInWindow(range.from, range.to) : undefined;
+    let stale = false;
+    let lastUpdated: string | null = null;
+    let cacheTag = range ? `${since.toISOString()}|${until.toISOString()}` : 'live24h';
+
+    if (!range) {
+      const latestDoc = (await TelemetryModel.findOne({}, { serverTs: 1 }).sort({ serverTs: -1 }).lean()) as { serverTs: Date } | null;
+      const asOf = latestDoc ? new Date(latestDoc.serverTs) : null;
+      if (asOf) {
+        lastUpdated = asOf.toISOString();
+        if (Date.now() - asOf.getTime() > STALE_MS) {
+          stale = true;
+          const ist = new Date(asOf.getTime() + IST_OFFSET);
+          since = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST_OFFSET);
+          until = asOf;
+          latest = await latestByMachineInWindow(since, asOf); // snapshot → as-recorded statuses
+          cacheTag = `stale|${since.toISOString()}`;
+        }
+      }
+    }
 
     let views = await getScopedViews(req.user!, latest);
     if (req.query.dept) views = views.filter((v) => v.department === req.query.dept);
     if (req.query.status) views = views.filter((v) => v.status === req.query.status);
 
-    // idle/stopped time + counts derived from the status history (24h or the selected range),
-    // so machines without PLC downtime counters still show their real downtime.
-    const since = range ? range.from : new Date(Date.now() - 24 * 3600 * 1000);
-    const until = range ? range.to : new Date();
-    const cacheTag = range ? `${since.toISOString()}|${until.toISOString()}` : 'live24h';
+    // idle/stopped time + counts derived from the status history over the window, so machines
+    // without PLC downtime counters still show their real downtime.
     const dt = await downtimeByMachine(views.map((v) => v.machineId), since, until, cacheTag);
 
     const cards = views.map((v) => {
@@ -96,7 +119,7 @@ router.get('/api/downtime', async (req, res) => {
       running: cards.filter((c) => c.status === 'running').length,
     };
 
-    res.json({ cards, kpis });
+    res.json({ cards, kpis, stale, lastUpdated, windowStart: since.toISOString(), windowEnd: until.toISOString() });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load downtime' });
   }

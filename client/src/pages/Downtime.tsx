@@ -40,7 +40,13 @@ export default function Downtime() {
   const { data } = useDowntimeData(qs);
   const { cards, kpis } = data;
   const filtered = !!(dateFrom || dateTo || dept || status);
-  const rangeNote = dateFrom || dateTo ? 'in range' : '24h';
+  // live feed offline → server returns the last recorded day instead of an empty 24h
+  const stale = !(dateFrom || dateTo) && !!data.stale;
+  const asOfLabel = data.lastUpdated ? new Date(data.lastUpdated).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  const dayLabel = data.lastUpdated ? new Date(data.lastUpdated).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '';
+  const rangeNote = dateFrom || dateTo ? 'in range' : stale ? `last day · ${dayLabel}` : '24h';
+  const winLabel = stale ? dayLabel : (dateFrom || dateTo) ? 'range' : '24h';                 // tile parenthetical
+  const noDownText = stale ? `on ${dayLabel}` : (dateFrom || dateTo) ? 'in this range' : 'in the last 24h'; // empty message
 
   const down = (m: Card) => (m.idleSec || 0) + (m.stoppedSec || 0);
   const hasDowntime = (m: Card) => down(m) > 0 || (m.eventCount || 0) > 0 || !!m.lastSpell;
@@ -61,6 +67,12 @@ export default function Downtime() {
         <KpiCard label="Idle" value={kpis.idle} sub="Currently idle" accent="var(--accent-amber)" />
         <KpiCard label="Running" value={kpis.running} sub={`of ${cards.length} machines`} accent="var(--accent-green)" />
       </div>
+
+      {stale && (
+        <div className="card" style={{ padding: '10px 14px', marginTop: 14, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 13, fontWeight: 600 }}>
+          ⚠ Live feed offline — showing the last recorded day{asOfLabel ? ` (as of ${asOfLabel})` : ''}, not the last 24 hours.
+        </div>
+      )}
 
       {/* filters */}
       <div className="card" style={{ padding: 16, marginTop: 18, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -108,7 +120,7 @@ export default function Downtime() {
             {cards.length > 0 && hideZero ? 'No machines had downtime in this window. Untick “Hide no-downtime” to see all.' : 'No machines match these filters.'}
           </div>
         ) : (
-          visibleCards.map((m) => <DowntimeCardView key={m._id} m={m} />)
+          visibleCards.map((m) => <DowntimeCardView key={m._id} m={m} winLabel={winLabel} noDownText={noDownText} />)
         )}
       </div>
     </div>
@@ -120,7 +132,7 @@ function Lbl({ label, children }: { label: string; children: React.ReactNode }) 
 }
 const ctrl: React.CSSProperties = { ...inputStyle };
 
-function DowntimeCardView({ m }: { m: Card & { idleCount?: number; stoppedCount?: number } }) {
+function DowntimeCardView({ m, winLabel, noDownText }: { m: Card & { idleCount?: number; stoppedCount?: number }; winLabel: string; noDownText: string }) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState<DowntimeEventRow[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -155,12 +167,12 @@ function DowntimeCardView({ m }: { m: Card & { idleCount?: number; stoppedCount?
 
       <div className="grid-two" style={{ gap: 8, marginTop: 12 }}>
         <div style={{ background: '#fef5e7', borderRadius: 10, padding: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--idle)' }}>IDLE (24H)</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--idle)' }}>IDLE ({winLabel.toUpperCase()})</div>
           <div className="mono" style={{ fontWeight: 700, fontSize: 16 }}>{fmtDuration(m.idleSec)}</div>
           <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{m.idleCount || 0} occurrences</div>
         </div>
         <div style={{ background: '#fdeaea', borderRadius: 10, padding: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--stopped)' }}>STOPPED (24H)</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--stopped)' }}>STOPPED ({winLabel.toUpperCase()})</div>
           <div className="mono" style={{ fontWeight: 700, fontSize: 16 }}>{fmtDuration(m.stoppedSec)}</div>
           <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{m.stoppedCount || 0} occurrences</div>
         </div>
@@ -177,7 +189,7 @@ function DowntimeCardView({ m }: { m: Card & { idleCount?: number; stoppedCount?
           {new Date(m.lastSpell.ts).toLocaleString('en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
         </div>
       ) : (
-        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--running)' }}>No downtime in the last 24h ✓</div>
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--running)' }}>No downtime {noDownText} ✓</div>
       )}
 
       <button
