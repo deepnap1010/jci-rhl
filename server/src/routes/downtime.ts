@@ -24,29 +24,36 @@ export async function downtimeByMachine(ids: string[], from: Date, to: Date, cac
   const key = `${cacheTag}|${ids.join(',')}`;
   const hit = dtCache.get(key);
   if (hit && Date.now() - hit.at < DT_TTL_MS) return hit.map;
-  const rows = await TelemetryModel.aggregate([
-    { $match: { machineId: { $in: ids }, serverTs: { $gte: from, $lte: to } } },
-    { $project: { machineId: 1, serverTs: 1, status: { $toLower: { $ifNull: ['$data.status', ''] } } } },
-    // tag each reading with a per-machine runId (cumulative count of status changes)
-    { $setWindowFields: { partitionBy: '$machineId', sortBy: { serverTs: 1 }, output: { prev: { $shift: { output: '$status', by: -1 } } } } },
-    { $set: { isNew: { $cond: [{ $eq: ['$status', '$prev'] }, 0, 1] } } },
-    { $setWindowFields: { partitionBy: '$machineId', sortBy: { serverTs: 1 }, output: { runId: { $sum: '$isNew', window: { documents: ['unbounded', 'current'] } } } } },
-    // collapse to runs; a run lasts until the NEXT run starts (or its own last reading if it's the latest)
-    { $group: { _id: { m: '$machineId', r: '$runId' }, status: { $first: '$status' }, startTs: { $min: '$serverTs' }, lastTs: { $max: '$serverTs' } } },
-    { $setWindowFields: { partitionBy: '$_id.m', sortBy: { startTs: 1 }, output: { nextStart: { $shift: { output: '$startTs', by: 1 } } } } },
-    { $set: { durSec: { $max: [0, { $round: [{ $divide: [{ $subtract: [{ $ifNull: ['$nextStart', '$lastTs'] }, '$startTs'] }, 1000] }, 0] }] } } },
-    { $match: { status: { $in: ['idle', 'stopped'] } } },
-    { $group: {
-        _id: '$_id.m',
-        idleSec: { $sum: { $cond: [{ $eq: ['$status', 'idle'] }, '$durSec', 0] } },
-        stoppedSec: { $sum: { $cond: [{ $eq: ['$status', 'stopped'] }, '$durSec', 0] } },
-        idleCount: { $sum: { $cond: [{ $eq: ['$status', 'idle'] }, 1, 0] } },
-        stoppedCount: { $sum: { $cond: [{ $eq: ['$status', 'stopped'] }, 1, 0] } },
-        lastSpell: { $top: { sortBy: { startTs: -1 }, output: { type: '$status', durationSec: '$durSec', ts: '$startTs' } } },
-    } },
-  ]) as (DowntimeAgg & { _id: string })[];
+
+  // Per-machine (not one giant cross-machine aggregation): a single machine's window is small
+  // enough for the 32MB in-memory sort, so this works on shared Atlas tiers where allowDiskUse
+  // isn't permitted. Each machine's readings are collapsed into status "runs", then spells.
   const map = new Map<string, DowntimeAgg>();
-  for (const r of rows) map.set(String(r._id), { idleSec: r.idleSec || 0, stoppedSec: r.stoppedSec || 0, idleCount: r.idleCount || 0, stoppedCount: r.stoppedCount || 0, lastSpell: r.lastSpell || null });
+  await Promise.all(ids.map(async (id) => {
+    const runs = await TelemetryModel.aggregate([
+      { $match: { machineId: id, serverTs: { $gte: from, $lte: to } } },
+      { $project: { serverTs: 1, status: { $toLower: { $ifNull: ['$data.status', ''] } } } },
+      { $setWindowFields: { sortBy: { serverTs: 1 }, output: { prev: { $shift: { output: '$status', by: -1 } } } } },
+      { $set: { isNew: { $cond: [{ $eq: ['$status', '$prev'] }, 0, 1] } } },
+      { $setWindowFields: { sortBy: { serverTs: 1 }, output: { runId: { $sum: '$isNew', window: { documents: ['unbounded', 'current'] } } } } },
+      { $group: { _id: '$runId', status: { $first: '$status' }, startTs: { $min: '$serverTs' }, lastTs: { $max: '$serverTs' } } },
+      { $sort: { startTs: 1 } },
+    ]) as { status: string; startTs: Date; lastTs: Date }[];
+
+    let idleSec = 0, stoppedSec = 0, idleCount = 0, stoppedCount = 0;
+    let lastSpell: Spell | null = null;
+    for (let i = 0; i < runs.length; i++) {
+      const r = runs[i];
+      if (r.status !== 'idle' && r.status !== 'stopped') continue;
+      const next = runs[i + 1];
+      const endMs = (next ? new Date(next.startTs) : new Date(r.lastTs)).getTime();
+      const durSec = Math.max(0, Math.round((endMs - new Date(r.startTs).getTime()) / 1000));
+      if (r.status === 'idle') { idleSec += durSec; idleCount++; } else { stoppedSec += durSec; stoppedCount++; }
+      lastSpell = { type: r.status, durationSec: durSec, ts: new Date(r.startTs) }; // runs are asc → last wins = most recent
+    }
+    map.set(id, { idleSec, stoppedSec, idleCount, stoppedCount, lastSpell });
+  }));
+
   if (dtCache.size > 50) dtCache.clear();
   dtCache.set(key, { at: Date.now(), map });
   return map;

@@ -236,10 +236,11 @@ export async function latestByMachine(): Promise<Map<string, TelemetryDoc>> {
 // latest telemetry per machine within an explicit [from,to] window — used for
 // historical ("as of that period") dashboard/views. Not cached (range varies).
 export async function latestByMachineInWindow(from: Date, to: Date): Promise<Map<string, TelemetryDoc>> {
+  // $top keeps only the latest doc per machine WITHOUT a global sort of full documents — a plain
+  // $sort over a multi-day window blew the 32MB in-memory sort limit.
   const rows = await TelemetryModel.aggregate([
     { $match: { serverTs: { $gte: from, $lte: to } } },
-    { $sort: { serverTs: -1 } },
-    { $group: { _id: '$machineId', doc: { $first: '$$ROOT' } } },
+    { $group: { _id: '$machineId', doc: { $top: { sortBy: { serverTs: -1 }, output: '$$ROOT' } } } },
   ]);
   const map = new Map<string, TelemetryDoc>();
   for (const r of rows) map.set(r._id, r.doc as TelemetryDoc);
