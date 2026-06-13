@@ -24,6 +24,19 @@ Rules:
 - When the user gives a relative date ("today", "this week", "between 6 and 8 June"), convert it to an ISO range for the tool using the current date/time provided.`;
 
 type Part = { text?: string; functionCall?: { name: string; args?: Record<string, unknown> } };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Gemini free tier intermittently returns 503 (high demand) / 429 (rate limit) — retry with backoff.
+async function geminiFetch(url: string, body: unknown): Promise<Response> {
+  let last: Response | null = null;
+  for (let i = 0; i < 4; i++) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.ok || (r.status !== 503 && r.status !== 429)) return r;
+    last = r;
+    await sleep(1200 * (i + 1));
+  }
+  return last as Response;
+}
 
 router.post('/api/ai/query', async (req, res) => {
   const key = process.env.GEMINI_API_KEY;
@@ -33,7 +46,7 @@ router.post('/api/ai/query', async (req, res) => {
 
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(key)}`;
-    const contents: { role: string; parts: unknown[] }[] = [{ role: 'user', parts: [{ text: question }] }];
+    const contents: unknown[] = [{ role: 'user', parts: [{ text: question }] }];
     const toolsUsed: string[] = [];
     let answer = '';
 
@@ -43,21 +56,31 @@ router.post('/api/ai/query', async (req, res) => {
         contents,
         tools: [{ function_declarations: AI_TOOLS }],
       };
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await geminiFetch(url, body);
       if (!r.ok) {
         const detail = (await r.text()).slice(0, 400);
-        return res.status(502).json({ error: 'The AI service rejected the request.', detail });
+        const msg = r.status === 503 ? 'The AI is busy right now — please try again in a moment.'
+          : r.status === 429 ? 'AI rate limit reached — please wait a few seconds and retry.'
+          : 'The AI service returned an error.';
+        return res.status(502).json({ error: msg, detail });
       }
-      const data = await r.json() as { candidates?: { content?: { parts?: Part[] } }[] };
-      const parts = data.candidates?.[0]?.content?.parts ?? [];
-      const call = parts.find((p) => p.functionCall)?.functionCall;
+      const data = await r.json() as { candidates?: { content?: { role?: string; parts?: Part[] } }[] };
+      const content = data.candidates?.[0]?.content;
+      const parts = content?.parts ?? [];
+      const calls = parts.filter((p) => p.functionCall).map((p) => p.functionCall!);
 
-      if (call) {
-        toolsUsed.push(call.name);
-        const result = await runTool(call.name, call.args ?? {}, req.user!);
-        contents.push({ role: 'model', parts: [{ functionCall: call }] });
-        contents.push({ role: 'function', parts: [{ functionResponse: { name: call.name, response: { result } } }] });
-        continue; // let the model read the result and either call again or answer
+      if (calls.length) {
+        // echo the model's turn back VERBATIM (keeps each functionCall's thought_signature, which
+        // Gemini requires), then answer each call with the live tool result.
+        contents.push(content);
+        const responseParts: unknown[] = [];
+        for (const c of calls) {
+          toolsUsed.push(c.name);
+          const result = await runTool(c.name, c.args ?? {}, req.user!);
+          responseParts.push({ functionResponse: { name: c.name, response: { result } } });
+        }
+        contents.push({ role: 'user', parts: responseParts });
+        continue; // let the model read the results and either call again or answer
       }
 
       answer = parts.filter((p) => p.text).map((p) => p.text).join('\n').trim();
