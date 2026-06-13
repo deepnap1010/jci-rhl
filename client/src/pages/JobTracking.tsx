@@ -2,9 +2,10 @@
 //  JOB TRACKING PAGE  —  KPIs + jobs table + create / track
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Search, X, Plus } from 'lucide-react';
+import { Search, X, Plus, Trash2, History, AlertTriangle } from 'lucide-react';
 import { useJobs, useMachines, useTasks } from '../hooks/useData';
 import type { JobRow } from '../hooks/useData';
+import JobsHistoryModal from './JobsHistory';
 import OrgCascadePicker from '../components/OrgCascadePicker';
 import type { CascadeSelection } from '../components/OrgCascadePicker';
 import { KpiCard, inputStyle } from '../components/ui';
@@ -35,6 +36,8 @@ export default function JobTracking() {
   const [dateTo, setDateTo] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [track, setTrack] = useState<JobRow | null>(null);
+  const [delTarget, setDelTarget] = useState<JobRow | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   const [page, setPage] = useState(1);
 
   const counts = useMemo(() => ({
@@ -90,6 +93,7 @@ export default function JobTracking() {
         <label style={dateWrap} title="Allotted from"><span style={dateLbl}>FROM</span><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={dateInput} /></label>
         <label style={dateWrap} title="Allotted to (optional)"><span style={dateLbl}>TO</span><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={dateInput} /></label>
         {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(''); setDateTo(''); }} style={{ border: 'none', background: 'none', color: 'var(--brand)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Clear dates</button>}
+        <button onClick={() => setShowHistory(true)} style={ghostBtn}><History size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} /> Job History</button>
         {canCreate && <button onClick={() => setShowCreate(true)} style={primaryBtn}><Plus size={16} /> Create Job</button>}
       </div>
 
@@ -128,7 +132,14 @@ export default function JobTracking() {
                   </div>
                 </td>
                 <td style={td}><JobStatus status={j.status} /></td>
-                <td style={tdR}><button onClick={() => setTrack(j)} style={linkBtn}>Track</button></td>
+                <td style={tdR}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <button onClick={() => setTrack(j)} style={linkBtn}>Track</button>
+                    {canCreate && (
+                      <button onClick={() => setDelTarget(j)} title="Delete job" style={delBtn}><Trash2 size={15} /></button>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
@@ -152,7 +163,44 @@ export default function JobTracking() {
 
       {showCreate && <CreateJobModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); reload(); }} />}
       {track && <TrackModal job={track} onClose={() => setTrack(null)} onSaved={() => { setTrack(null); reload(); }} />}
+      {delTarget && <DeleteJobModal job={delTarget} onClose={() => setDelTarget(null)} onDeleted={() => { setDelTarget(null); reload(); }} />}
+      {showHistory && <JobsHistoryModal onClose={() => setShowHistory(false)} />}
     </div>
+  );
+}
+
+// ---- delete confirmation modal ----
+function DeleteJobModal({ job, onClose, onDeleted }: { job: JobRow; onClose: () => void; onDeleted: () => void }) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  async function confirm() {
+    setBusy(true); setErr('');
+    try {
+      await api.delete(`/api/jobs/${job._id}`, { data: { reason } });
+      onDeleted();
+    } catch (e: unknown) {
+      setErr((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to delete job.');
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal title="Delete job" onClose={onClose}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 14px', background: '#fef2f2', borderRadius: 10, marginBottom: 14 }}>
+        <AlertTriangle size={22} color="#b91c1c" style={{ flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 13.5, color: '#7f1d1d', lineHeight: 1.5 }}>
+          Delete <b className="mono">{job.jobNumber}</b>{job.fabricName && job.fabricName !== '—' ? ` (${job.fabricName})` : ''}? It will be removed from the live list and moved to <b>Job History</b>, where its full details remain viewable.
+        </div>
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Reason (optional)</div>
+      <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="e.g. Completed and cleared, or created by mistake"
+        style={{ ...fullInput, resize: 'vertical', fontFamily: 'inherit' }} />
+      {err && <div style={{ color: 'var(--stopped)', fontSize: 13, marginTop: 10 }}>{err}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+        <button onClick={onClose} style={ghostBtn} disabled={busy}>Cancel</button>
+        <button onClick={confirm} disabled={busy} style={{ ...primaryBtn, background: '#b91c1c' }}>{busy ? 'Deleting…' : 'Delete job'}</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -306,7 +354,8 @@ const td: React.CSSProperties = { padding: '11px 12px' };
 const tdR: React.CSSProperties = { ...td, textAlign: 'right' };
 const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 16px', fontWeight: 700, fontSize: 14 };
 const ghostBtn: React.CSSProperties = { background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border-strong)', borderRadius: 10, padding: '9px 16px', fontWeight: 700, fontSize: 14 };
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--brand)', fontWeight: 700, fontSize: 13 };
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--brand)', fontWeight: 700, fontSize: 13, cursor: 'pointer' };
+const delBtn: React.CSSProperties = { border: '1px solid var(--border-strong)', background: 'var(--surface)', color: '#b91c1c', borderRadius: 8, width: 28, height: 28, display: 'grid', placeItems: 'center', cursor: 'pointer' };
 const jobsPagerBtn = (disabled: boolean): React.CSSProperties => ({
   minWidth: 64, height: 32, padding: '0 12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
   border: '1px solid var(--border-strong)', background: 'var(--surface)',

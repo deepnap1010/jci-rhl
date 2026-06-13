@@ -5,9 +5,11 @@
 // ============================================================
 import { Router } from 'express';
 import { JobModel } from '../models/Job';
+import { JobHistoryModel } from '../models/JobHistory';
 import { UserModel } from '../models/User';
 import { getScopedViews, machineCodesInScope } from '../lib/derive';
 import { notifyJobAssignees } from '../lib/jobNotify';
+import { archiveJob } from '../lib/archiveJob';
 import { can } from '@shared/permissions';
 
 const router = Router();
@@ -220,6 +222,39 @@ router.patch('/api/jobs/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update job' });
+  }
+});
+
+// GET /api/jobs/history?page=&limit=&q=  → archive of deleted jobs (most recent first)
+router.get('/api/jobs/history', async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || '10'), 10) || 10));
+    const q = String(req.query.q || '').trim();
+    const filter: Record<string, unknown> = {};
+    if (q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ jobNumber: rx }, { orderNumber: rx }, { fabricName: rx }, { stage: rx }, { operatorName: rx }, { supervisorName: rx }, { reason: rx }, { deletedByName: rx }];
+    }
+    const total = await JobHistoryModel.countDocuments(filter);
+    const rows = await JobHistoryModel.find(filter).sort({ deletedAt: -1 }).skip((page - 1) * limit).limit(limit).lean();
+    res.json({ rows, total, page, limit, pages: Math.max(1, Math.ceil(total / limit)) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load job history' });
+  }
+});
+
+// DELETE /api/jobs/:id  → archive the job to history, then remove it
+router.delete('/api/jobs/:id', async (req, res) => {
+  try {
+    const job = await JobModel.findById(req.params.id).lean();
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!(await assertCanAssign(req, res, job.machineId || undefined))) return; // same permission as creating/assigning
+    await archiveJob(job as Record<string, unknown>, { reason: req.body?.reason, by: req.user });
+    await JobModel.deleteOne({ _id: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete job' });
   }
 });
 
