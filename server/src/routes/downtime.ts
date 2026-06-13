@@ -19,6 +19,7 @@ const dtCache = new Map<string, { at: number; map: Map<string, DowntimeAgg> }>()
 const DT_TTL_MS = 15_000;
 const STALE_MS = 5 * 60 * 1000;       // feed older than this → fall back to the last recorded day
 const IST_OFFSET = 5.5 * 3600 * 1000; // factory-local day boundary
+const MAX_GAP_SEC = 300;              // gap between readings beyond this = data outage, not downtime
 
 export async function downtimeByMachine(ids: string[], from: Date, to: Date, cacheTag: string): Promise<Map<string, DowntimeAgg>> {
   const key = `${cacheTag}|${ids.join(',')}`;
@@ -27,27 +28,33 @@ export async function downtimeByMachine(ids: string[], from: Date, to: Date, cac
 
   // Per-machine (not one giant cross-machine aggregation): a single machine's window is small
   // enough for the 32MB in-memory sort, so this works on shared Atlas tiers where allowDiskUse
-  // isn't permitted. Each machine's readings are collapsed into status "runs", then spells.
+  // isn't permitted. Each reading "holds" its status until the next reading — but a gap longer than
+  // MAX_GAP_SEC is treated as a DATA OUTAGE (disconnected), not continuous downtime, so sparse
+  // readings can't inflate a spell to many hours. Readings are collapsed into status "runs".
   const map = new Map<string, DowntimeAgg>();
   await Promise.all(ids.map(async (id) => {
     const runs = await TelemetryModel.aggregate([
       { $match: { machineId: id, serverTs: { $gte: from, $lte: to } } },
       { $project: { serverTs: 1, status: { $toLower: { $ifNull: ['$data.status', ''] } } } },
-      { $setWindowFields: { sortBy: { serverTs: 1 }, output: { prev: { $shift: { output: '$status', by: -1 } } } } },
-      { $set: { isNew: { $cond: [{ $eq: ['$status', '$prev'] }, 0, 1] } } },
+      { $setWindowFields: { sortBy: { serverTs: 1 }, output: {
+          prev: { $shift: { output: '$status', by: -1 } },
+          nextTs: { $shift: { output: '$serverTs', by: 1 } },
+      } } },
+      { $set: {
+          isNew: { $cond: [{ $eq: ['$status', '$prev'] }, 0, 1] },
+          // time this reading represents = gap to the next reading, capped (a long gap = lost signal)
+          intervalSec: { $cond: [{ $eq: ['$nextTs', null] }, 0, { $min: [MAX_GAP_SEC, { $divide: [{ $subtract: ['$nextTs', '$serverTs'] }, 1000] }] }] },
+      } },
       { $setWindowFields: { sortBy: { serverTs: 1 }, output: { runId: { $sum: '$isNew', window: { documents: ['unbounded', 'current'] } } } } },
-      { $group: { _id: '$runId', status: { $first: '$status' }, startTs: { $min: '$serverTs' }, lastTs: { $max: '$serverTs' } } },
+      { $group: { _id: '$runId', status: { $first: '$status' }, startTs: { $min: '$serverTs' }, durSec: { $sum: '$intervalSec' } } },
       { $sort: { startTs: 1 } },
-    ]) as { status: string; startTs: Date; lastTs: Date }[];
+    ]) as { status: string; startTs: Date; durSec: number }[];
 
     let idleSec = 0, stoppedSec = 0, idleCount = 0, stoppedCount = 0;
     let lastSpell: Spell | null = null;
-    for (let i = 0; i < runs.length; i++) {
-      const r = runs[i];
+    for (const r of runs) {
       if (r.status !== 'idle' && r.status !== 'stopped') continue;
-      const next = runs[i + 1];
-      const endMs = (next ? new Date(next.startTs) : new Date(r.lastTs)).getTime();
-      const durSec = Math.max(0, Math.round((endMs - new Date(r.startTs).getTime()) / 1000));
+      const durSec = Math.round(r.durSec || 0);
       if (r.status === 'idle') { idleSec += durSec; idleCount++; } else { stoppedSec += durSec; stoppedCount++; }
       lastSpell = { type: r.status, durationSec: durSec, ts: new Date(r.startTs) }; // runs are asc → last wins = most recent
     }
@@ -143,28 +150,31 @@ router.get('/api/downtime/:machineId/events', async (req, res) => {
     const runs = await TelemetryModel.aggregate([
       { $match: { machineId: req.params.machineId, serverTs: { $gte: since } } },
       { $project: { serverTs: 1, status: { $toLower: { $ifNull: ['$data.status', ''] } } } },
-      { $setWindowFields: { sortBy: { serverTs: 1 }, output: { prev: { $shift: { output: '$status', by: -1 } } } } },
-      { $set: { isNew: { $cond: [{ $eq: ['$status', '$prev'] }, 0, 1] } } },
+      { $setWindowFields: { sortBy: { serverTs: 1 }, output: {
+          prev: { $shift: { output: '$status', by: -1 } },
+          nextTs: { $shift: { output: '$serverTs', by: 1 } },
+      } } },
+      { $set: {
+          isNew: { $cond: [{ $eq: ['$status', '$prev'] }, 0, 1] },
+          intervalSec: { $cond: [{ $eq: ['$nextTs', null] }, 0, { $min: [MAX_GAP_SEC, { $divide: [{ $subtract: ['$nextTs', '$serverTs'] }, 1000] }] }] },
+      } },
       { $setWindowFields: { sortBy: { serverTs: 1 }, output: { runId: { $sum: '$isNew', window: { documents: ['unbounded', 'current'] } } } } },
-      { $group: { _id: '$runId', status: { $first: '$status' }, startTs: { $min: '$serverTs' } } },
+      { $group: { _id: '$runId', status: { $first: '$status' }, startTs: { $min: '$serverTs' }, lastTs: { $max: '$serverTs' }, durSec: { $sum: '$intervalSec' } } },
       { $sort: { startTs: 1 } },
-    ]) as { _id: number; status: string; startTs: Date }[];
+    ]) as { _id: number; status: string; startTs: Date; lastTs: Date; durSec: number }[];
 
     type Ev = { type: 'idle' | 'stopped'; startTs: Date; endTs: Date | null; durationSec: number; ongoing: boolean };
     const events: Ev[] = [];
-    const now = new Date();
-    // a spell runs from its run's start to the NEXT run's start (or "now" if it's the latest run)
+    // spell duration = sum of capped reading intervals (gaps over MAX_GAP_SEC are data outages, not downtime)
     for (let i = 0; i < runs.length; i++) {
       const r = runs[i];
       if (r.status !== 'idle' && r.status !== 'stopped') continue;
       const next = runs[i + 1];
-      const start = new Date(r.startTs);
-      const end = next ? new Date(next.startTs) : null;
       events.push({
         type: r.status,
-        startTs: start,
-        endTs: end,
-        durationSec: Math.max(0, Math.round(((end ?? now).getTime() - start.getTime()) / 1000)),
+        startTs: new Date(r.startTs),
+        endTs: next ? new Date(next.startTs) : new Date(r.lastTs),
+        durationSec: Math.round(r.durSec || 0),
         ongoing: !next,
       });
     }

@@ -62,7 +62,7 @@ export default function Downtime() {
   return (
     <div style={{ padding: '0 28px 40px' }}>
       <div className="grid-stats-4" style={{ gap: 14 }}>
-        <KpiCard label="Total Downtime" value={fmtDuration(kpis.totalDowntimeSec)} sub={`Idle + stopped (${rangeNote})`} accent="var(--accent-red)" />
+        <KpiCard label="Total Downtime" value={fmtDuration(kpis.totalDowntimeSec)} sub={`Idle + stopped · ${cards.filter((c) => (c.idleSec || 0) + (c.stoppedSec || 0) > 0).length} machines · ${rangeNote}`} accent="var(--accent-red)" />
         <KpiCard label="Stopped" value={kpis.stopped} sub="Currently stopped" accent="var(--accent-red)" />
         <KpiCard label="Idle" value={kpis.idle} sub="Currently idle" accent="var(--accent-amber)" />
         <KpiCard label="Running" value={kpis.running} sub={`of ${cards.length} machines`} accent="var(--accent-green)" />
