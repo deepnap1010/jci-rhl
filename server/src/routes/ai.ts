@@ -12,7 +12,7 @@ import { Router } from 'express';
 import { AI_TOOLS, runTool } from '../lib/aiTools';
 
 const router = Router();
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 
 const SYSTEM = `You are the JCI SmartFactory assistant for a textile production plant.
 Answer questions about the factory using ONLY the provided tools, which return LIVE data already scoped to the current user's permissions.
