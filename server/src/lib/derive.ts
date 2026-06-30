@@ -247,14 +247,8 @@ export async function latestByMachineInWindow(from: Date, to: Date): Promise<Map
   return map;
 }
 
-// `latest` override lets callers pass a historical window's snapshot.
-export async function getScopedViews(user: User, latest?: Map<string, TelemetryDoc>): Promise<MachineView[]> {
-  const machines = await machinesCached();
-  // a caller-supplied `latest` is a historical window snapshot → point-in-time status
-  const pointInTime = !!latest;
-  const latestMap = latest ?? (await latestByMachine());
-  const views = machines.map((m) => deriveView(m, latestMap.get(m.machineId) || null, pointInTime));
-
+// scope a derived view list to what the user may see (mirrors the read-scope rules)
+function scopeViews(user: User, views: MachineView[]): MachineView[] {
   if (user.role === 'superAdmin' || user.role === 'admin' || user.role === 'plantHead') return views;
   if (user.role === 'prodManager') {
     const lines = new Set(user.assignedLines);
@@ -263,4 +257,51 @@ export async function getScopedViews(user: User, latest?: Map<string, TelemetryD
   // supervisor / operator → only their machines (assignedMachineIds are string codes)
   const ids = new Set(user.assignedMachineIds);
   return views.filter((v) => ids.has(v.machineId));
+}
+
+// `latest` override lets callers pass a historical window's snapshot.
+export async function getScopedViews(user: User, latest?: Map<string, TelemetryDoc>): Promise<MachineView[]> {
+  const machines = await machinesCached();
+  // a caller-supplied `latest` is a historical window snapshot → point-in-time status
+  const pointInTime = !!latest;
+  const latestMap = latest ?? (await latestByMachine());
+  const views = machines.map((m) => deriveView(m, latestMap.get(m.machineId) || null, pointInTime));
+  return scopeViews(user, views);
+}
+
+// ---- stale-aware live views (used by the Machines list) ----
+// When the live feed is offline (whole plant silent > STALE_FEED_MS) the plain live view marks
+// EVERY machine 'disconnected' (Running 0), while the dashboard shows the last-recorded-DAY
+// snapshot (e.g. Running 1). To keep the two pages consistent, this keeps each machine's
+// last-known VALUES but takes its STATUS from that same last-recorded-day snapshot — so a
+// machine that didn't report on the active day reads as offline, not "still running".
+const STALE_FEED_MS = 5 * 60 * 1000;
+const IST_MS = 5.5 * 3600 * 1000; // factory-local (Asia/Kolkata) day boundary
+function startOfISTDay(d: Date): Date {
+  const ist = new Date(d.getTime() + IST_MS);
+  return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST_MS);
+}
+async function latestReadingTime(): Promise<Date | null> {
+  const doc = (await TelemetryModel.findOne({}, { serverTs: 1 }).sort({ serverTs: -1 }).lean()) as { serverTs: Date } | null;
+  return doc ? new Date(doc.serverTs) : null;
+}
+
+export async function getScopedViewsStaleAware(user: User): Promise<MachineView[]> {
+  const asOf = await latestReadingTime();
+  if (!asOf || Date.now() - asOf.getTime() <= STALE_FEED_MS) return getScopedViews(user); // feed fresh → live
+
+  const [liveMap, snapMap, machines] = await Promise.all([
+    latestByMachine(),                                  // last-known values (most recent reading ever)
+    latestByMachineInWindow(startOfISTDay(asOf), asOf), // statuses as of the active (last recorded) day
+    machinesCached(),
+  ]);
+  const views = machines.map((m) => {
+    const v = deriveView(m, liveMap.get(m.machineId) || null, true); // keep last-known values
+    const snap = snapMap.get(m.machineId);
+    const status = snap ? deriveView(m, snap, true).status : 'disconnected';
+    v.status = status; // override with the active-day status (offline if it didn't report that day)
+    if (v.state) v.state.status = status;
+    return v;
+  });
+  return scopeViews(user, views);
 }

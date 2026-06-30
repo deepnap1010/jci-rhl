@@ -10,17 +10,18 @@ import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Dashboard from './pages/Dashboard';
 import Machines from './pages/Machines';
+import MachineDetail from './pages/MachineDetail';
 import Downtime from './pages/Downtime';
 import Work from './pages/Work';
 import History from './pages/History';
-import WaterFlow from './pages/WaterFlow';
-import Electricity from './pages/Electricity';
 import OperatorMap from './pages/OperatorMap';
 import Org from './pages/Org';
-import Employees from './pages/Employees';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
-import Shifts from './pages/Shifts';
+import Settings from './pages/Settings';
+import Alerts from './pages/Alerts';
+import Reports from './pages/Reports';
+import Notifications from './pages/Notifications';
 import { AiQuery, Placeholder } from './pages/Misc';
 
 function pageFor(key: string) {
@@ -32,14 +33,14 @@ function pageFor(key: string) {
     case 'downtime': return <Downtime />;
     case 'history':
     case 'historyLog': return <History />;
-    case 'waterFlow': return <WaterFlow />;
-    case 'electricity': return <Electricity />;
     case 'operatorMap': return <OperatorMap />;
     case 'org': return <Org />;
     case 'users': return <Users />;
-    case 'employees': return <Employees />;
     case 'roles': return <Roles />;
-    case 'shifts': return <Shifts />;
+    case 'settings': return <Settings />;
+    case 'alerts': return <Alerts />;
+    case 'reports': return <Reports />;
+    case 'notifications': return <Notifications />;
     case 'aiQuery': return <AiQuery />;
     default: return <Placeholder title={NAV[key]?.label ?? key} />;
   }
@@ -51,7 +52,9 @@ function Shell() {
   if (!role) return null; // gate guarantees a user, this satisfies TS
   const allowed = ROLE_NAV[role];
   const currentKey = location.pathname.replace('/', '') || 'dashboard';
-  const title = NAV[currentKey]?.label ?? 'Dashboard';
+  const isMachineDetail = /^machines\/.+/.test(currentKey);
+  const title = isMachineDetail ? 'Machine' : (NAV[currentKey]?.label ?? 'Dashboard');
+  const subtitle = isMachineDetail ? 'Live telemetry, history & controls' : NAV[currentKey]?.subtitle;
 
   if (currentKey !== '' && currentKey !== 'dashboard' && !allowed.includes(currentKey) && NAV[currentKey]) {
     return <Navigate to={`/${allowed[0]}`} replace />;
@@ -61,10 +64,11 @@ function Shell() {
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <Sidebar />
       <main style={{ flex: 1, minWidth: 0 }}>
-        <Topbar title={title} />
+        <Topbar title={title} subtitle={subtitle} />
         <ErrorBoundary key={currentKey}>
           <Routes>
             <Route path="/" element={<Navigate to={`/${allowed[0]}`} replace />} />
+            <Route path="/machines/:code" element={<MachineDetail />} />
             {Object.keys(NAV).map((key) => (
               <Route key={key} path={`/${key}`} element={pageFor(key)} />
             ))}

@@ -10,40 +10,36 @@ import { RoleModel, MODULES, ACTIONS } from '../models/Role';
 
 const router = Router();
 
-// the built-in system roles, seeded once so the grid is never empty
-const SEED_ROLES = [
-  { name: 'Operator', slug: 'operator', description: 'Shop-floor operator', isSystem: false,
-    permissions: { dashboard: ['view'], machines: ['view'] } },
-  { name: 'Production Operator', slug: 'production-operator', description: 'Production operator', isSystem: false,
-    permissions: { dashboard: ['view'], machines: ['view', 'update'], jobs: ['view'] } },
-  { name: 'Production Supervisor', slug: 'supervisor', description: 'Supervises a line', isSystem: false,
-    permissions: { dashboard: ['view'], machines: ['view', 'update'], jobs: ['view', 'update', 'approve'], downtime: ['view'] } },
-  { name: 'QC Inspection', slug: 'qc-inspection', description: 'Quality control', isSystem: false,
-    permissions: { dashboard: ['view'], machines: ['view'], history: ['view'] } },
-  { name: 'System Admin', slug: 'system-admin', description: 'Full access', isSystem: true,
-    permissions: Object.fromEntries(MODULES.map((m) => [m, [...ACTIONS]])) },
-];
+// ── ROLES ARE ADMIN-MANAGED ─────────────────────────────────
+// The ONLY built-in role is "Super Admin" (the owner): it's locked, always has full
+// access, and can never be deleted — so a misconfigured custom role can't lock anyone
+// out. EVERY other role is CREATED by the Super Admin on this page, and those are what
+// appear in the User Management dropdown. Each role declares a data SCOPE (all / lines /
+// machines / own) which the backend enforces through the proven scoping rules.
+const fullPerms = () => Object.fromEntries(MODULES.map((m) => [m, [...ACTIONS]]));
+const SCOPES = ['all', 'lines', 'machines', 'own'];
+
+// Clear the old auto-seeded placeholder roles so the list starts clean (just Super Admin +
+// whatever the admin creates). Obsolete slugs that an admin's name-based slug can NEVER
+// produce (camelCase enum keys + old placeholders) are ALWAYS removed; the lowercase ones an
+// admin could re-create by name are cleared only ONCE (guarded), so admin-created roles are
+// never auto-deleted afterwards.
+const ALWAYS_RETIRE = ['admin', 'plantHead', 'prodManager', 'production-operator', 'qc-inspection', 'system-admin'];
+const ONCE_RETIRE = ['supervisor', 'operator', 'employee'];
 
 async function ensureSeeded() {
-  const count = await RoleModel.estimatedDocumentCount();
-  if (count === 0) {
-    await RoleModel.insertMany(SEED_ROLES);
-    return;
-  }
-  // Correct the isSystem flag on built-in roles for existing DBs (e.g. Operator and
-  // Production Supervisor are no longer system roles). We only fix the flag — we do
-  // NOT overwrite permissions, so any edits the admin already made are preserved.
-  // Custom roles created by the admin are never touched.
-  for (const sr of SEED_ROLES) {
-    await RoleModel.updateOne({ slug: sr.slug }, { $set: { isSystem: sr.isSystem } });
-  }
-  // The System Admin role always keeps full access.
-  const admin = SEED_ROLES.find((r) => r.slug === 'system-admin')!;
   await RoleModel.updateOne(
-    { slug: 'system-admin' },
-    { $set: { isSystem: true, permissions: admin.permissions } },
+    { slug: 'superAdmin' },
+    { $set: { name: 'Super Admin', description: 'Full access to everything', isSystem: true, scope: 'all', permissions: fullPerms() } },
     { upsert: true }
   );
+  await RoleModel.deleteMany({ slug: { $in: ALWAYS_RETIRE } });
+  const sa = await RoleModel.findOne({ slug: 'superAdmin' });
+  if (sa && !sa.get('rolesReset')) {
+    await RoleModel.deleteMany({ slug: { $in: ONCE_RETIRE } });
+    sa.set('rolesReset', true);
+    await sa.save();
+  }
 }
 
 router.get('/api/roles', async (_req, res) => {
@@ -58,12 +54,14 @@ router.get('/api/roles', async (_req, res) => {
 
 router.post('/api/roles', async (req, res) => {
   try {
-    const { name, description, permissions } = req.body ?? {};
+    const { name, description, permissions, scope } = req.body ?? {};
     if (!name) return res.status(400).json({ error: 'name is required' });
     const slug = String(name).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (['superadmin', 'super-admin', 'admin', 'system-admin'].includes(slug)) return res.status(409).json({ error: 'That name is reserved' });
     const exists = await RoleModel.findOne({ slug });
     if (exists) return res.status(409).json({ error: 'A role with that name already exists' });
-    const role = await RoleModel.create({ name, slug, description: description || '', isSystem: false, permissions: permissions || {} });
+    const validScope = SCOPES.includes(scope) ? scope : 'machines';
+    const role = await RoleModel.create({ name, slug, description: description || '', isSystem: false, scope: validScope, permissions: permissions || {} });
     res.json({ ok: true, id: role._id });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create role', detail: String(err) });
@@ -75,10 +73,11 @@ router.patch('/api/roles/:id', async (req, res) => {
     const role = await RoleModel.findById(req.params.id);
     if (!role) return res.status(404).json({ error: 'Role not found' });
     if (role.get('isSystem')) return res.status(403).json({ error: 'System roles cannot be edited' });
-    const { name, description, permissions } = req.body ?? {};
+    const { name, description, permissions, scope } = req.body ?? {};
     if (name !== undefined) role.set('name', name);
     if (description !== undefined) role.set('description', description);
     if (permissions !== undefined) role.set('permissions', permissions);
+    if (scope !== undefined && SCOPES.includes(scope)) role.set('scope', scope);
     await role.save();
     res.json({ ok: true });
   } catch (err) {

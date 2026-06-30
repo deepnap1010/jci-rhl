@@ -1,0 +1,35 @@
+// client/tailwind.config.js
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {
+      // Driven by CSS variables (see src/index.css) so the palette can switch
+      // between light/dark themes. `<alpha-value>` keeps opacity utilities working
+      // (e.g. bg-accent/10).
+      colors: {
+        base:    'rgb(var(--c-base) / <alpha-value>)',     // main page background
+        surface: 'rgb(var(--c-surface) / <alpha-value>)',  // panels / sidebar
+        raised:  'rgb(var(--c-raised) / <alpha-value>)',   // cards inside panels
+        line:    'rgb(var(--c-line) / <alpha-value>)',     // borders / dividers
+        steel:   'rgb(var(--c-steel) / <alpha-value>)',    // muted / secondary text
+        primary: 'rgb(var(--c-primary) / <alpha-value>)',  // primary body text
+        accent:  'rgb(var(--c-accent) / <alpha-value>)',   // teal (brand action color)
+        idle:    'rgb(var(--c-idle) / <alpha-value>)',     // amber
+        stopped: 'rgb(var(--c-stopped) / <alpha-value>)',  // red
+        running: 'rgb(var(--c-running) / <alpha-value>)',  // same as accent
+      },
+      fontFamily: {
+        sans: ['"Geist Variable"', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      spacing: { 4.5: '1.125rem' }, // 18px — used by panel footers / buttons (not in the default scale)
+      borderRadius: { card: '10px' },
+      boxShadow: {
+        card: '0 1px 3px 0 rgba(0,0,0,0.07), 0 1px 2px -1px rgba(0,0,0,0.05)',
+        panel: '0 1px 4px 0 rgba(0,0,0,0.06)',
+      },
+    },
+  },
+  plugins: [],
+};

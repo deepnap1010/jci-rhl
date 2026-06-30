@@ -1,11 +1,15 @@
 // ============================================================
-//  LOGIN PAGE
+//  LOGIN PAGE  —  EKC re-skin (Tailwind + theme tokens)
 //  Email + password → calls AuthContext.login. On success the
 //  App gate decides where to go (change-password or dashboard).
+//  Visual layer only — all auth hooks, state, validation, error
+//  handling and redirect behaviour are unchanged from the original.
 // ============================================================
 import { useState } from 'react';
-import { Factory } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/auth';
+import { Logo } from '../components/Logo';
+import { cn } from '../lib/utils';
 
 export default function Login() {
   const { login } = useAuth();
@@ -13,6 +17,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,77 +34,69 @@ export default function Login() {
   }
 
   return (
-    <div style={S.wrap}>
-      <form onSubmit={onSubmit} style={S.card}>
-        <div style={S.brand}>
-          <div style={S.logo}><Factory size={22} color="#fff" /></div>
-          <div>
-            <div style={S.brandName}>JCI SmartFactory</div>
-            <div style={S.brandSub}>Production Monitor</div>
-          </div>
+    <div className="min-h-screen grid place-items-center bg-base px-5">
+      <form onSubmit={onSubmit} className="panel w-full max-w-[400px] p-7 flex flex-col">
+        {/* brand */}
+        <div className="mb-6 flex justify-center">
+          <Logo imgClassName="h-16 w-auto max-w-[240px] object-contain" />
         </div>
 
-        <h2 style={S.title}>Sign in</h2>
+        <h2 className="text-lg font-bold text-primary mb-5">Sign in</h2>
 
-        <label style={S.label}>Email</label>
-        <input
-          style={S.input}
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@company.com"
-          autoFocus
-          required
-        />
+        <label className="label mb-1.5">Email</label>
+        <div className="relative mb-4">
+          <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel/60 pointer-events-none" />
+          <input
+            className="input pl-9"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com"
+            autoFocus
+            required
+          />
+        </div>
 
-        <label style={S.label}>Password</label>
-        <input
-          style={S.input}
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••"
-          required
-        />
+        <label className="label mb-1.5">Password</label>
+        <div className="relative mb-4">
+          <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel/60 pointer-events-none" />
+          <input
+            className="input pl-9 pr-10"
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            required
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-steel/60 hover:text-primary transition-colors"
+          >
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
 
-        {error && <div style={S.error}>{error}</div>}
+        {error && (
+          <div className="rounded-lg border border-stopped/30 bg-stopped/10 text-stopped px-3.5 py-2.5 text-sm flex items-center gap-2 mb-4">
+            <AlertTriangle size={15} className="shrink-0" />
+            {error}
+          </div>
+        )}
 
-        <button style={{ ...S.btn, opacity: busy ? 0.7 : 1 }} disabled={busy} type="submit">
+        <button
+          className="w-full bg-accent text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-60"
+          disabled={busy}
+          type="submit"
+        >
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
 
-        <div style={S.hint}>
+        <div className={cn('text-xs text-steel mt-5 text-center leading-relaxed')}>
           New users receive a temporary password by email and set their own on first login.
         </div>
       </form>
     </div>
   );
 }
-
-const S: Record<string, React.CSSProperties> = {
-  wrap: { minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'var(--bg, #f4f6fb)', padding: 20 },
-  card: {
-    width: '100%', maxWidth: 380, background: 'var(--surface, #fff)', borderRadius: 16,
-    padding: 28, boxShadow: '0 10px 40px rgba(0,0,0,.08)', border: '1px solid var(--border, #e5e7eb)',
-    display: 'flex', flexDirection: 'column',
-  },
-  brand: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 },
-  logo: { width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(135deg,#3b5bfd,#6d83ff)', display: 'grid', placeItems: 'center' },
-  brandName: { fontWeight: 800, fontSize: 16 },
-  brandSub: { fontSize: 11, color: '#9ca3af' },
-  title: { fontSize: 20, fontWeight: 800, margin: '6px 0 18px' },
-  label: { fontSize: 12, fontWeight: 700, color: '#6b7280', marginBottom: 6 },
-  input: {
-    border: '1px solid #d1d5db', borderRadius: 10, padding: '10px 12px', fontSize: 14,
-    marginBottom: 14, outline: 'none', background: '#fff',
-  },
-  btn: {
-    background: 'var(--brand, #3b5bfd)', color: '#fff', border: 'none', borderRadius: 10,
-    padding: '11px 14px', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginTop: 4,
-  },
-  error: {
-    background: '#fdeaea', color: '#b91c1c', borderRadius: 8, padding: '9px 12px',
-    fontSize: 13, marginBottom: 12,
-  },
-  hint: { fontSize: 12, color: '#9ca3af', marginTop: 16, textAlign: 'center', lineHeight: 1.5 },
-};

@@ -24,6 +24,10 @@
     "nodemailer": "^8.0.10",
     "socket.io": "^4.7.5"
   },
+  "optionalDependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "redis": "^4.7.0"
+  },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",

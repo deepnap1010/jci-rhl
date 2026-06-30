@@ -1,17 +1,22 @@
+// client/src/components/Sidebar.tsx
 // ============================================================
-//  SIDEBAR  —  grouped nav, rendered from the current role
-//  Responsive: fixed on desktop, slide-in drawer on mobile.
+//  SIDEBAR  —  EKC-style, Tailwind. Sectioned nav driven by the
+//  current role + the existing NAV/ROLE_NAV config (unchanged).
+//  Desktop: sticky full-height column. Mobile: slide-in drawer.
 // ============================================================
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Factory, Menu, X } from 'lucide-react';
+import { Menu, X, LogOut } from 'lucide-react';
 import { useAuth } from '../context/auth';
-import { NAV, ROLE_NAV } from '../config/nav';
+import { NAV, ROLE_NAV, ROLE_LABELS } from '../config/nav';
+import { Avatar } from './ekc-ui';
+import { Logo } from './Logo';
+import { cn } from '../lib/utils';
 
-const GROUP_ORDER = ['OVERVIEW', 'MONITORING', 'UTILITIES', 'MANAGEMENT'];
+const GROUP_ORDER = ['OVERVIEW', 'MONITORING', 'UTILITIES', 'MANAGEMENT', 'SYSTEM'];
 
 export default function Sidebar() {
-  const { role } = useAuth();
+  const { role, user, logout } = useAuth();
   const location = useLocation();
   const [open, setOpen] = useState(false); // mobile drawer
 
@@ -22,86 +27,97 @@ export default function Sidebar() {
     items: items.filter((i) => i.group === g),
   })).filter((g) => g.items.length > 0);
 
-  // close the drawer whenever the route changes (mobile)
   useEffect(() => { setOpen(false); }, [location.pathname]);
 
-  const nav = (
-    <nav style={S.nav}>
-      {groups.map((group) => (
-        <div key={group.name} style={{ marginBottom: 18 }}>
-          <div style={S.groupLabel}>{group.name}</div>
-          {group.items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.key}
-                to={`/${item.key}`}
-                style={({ isActive }: { isActive: boolean }) => ({ ...S.link, ...(isActive ? S.linkActive : {}) })}
-              >
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
-        </div>
-      ))}
-    </nav>
-  );
-
-  const brand = (
-    <div style={S.brand}>
-      <div style={S.logo}><Factory size={20} color="#fff" /></div>
-      <div>
-        <div style={S.brandName}>JCI SmartFactory</div>
-        <div style={S.brandSub}>Production Monitor v3</div>
+  const content = (
+    <>
+      <div className="px-5 h-[76px] flex items-center gap-2.5 border-b border-line shrink-0">
+        <Logo className="min-w-0" />
+        <button
+          onClick={() => setOpen(false)}
+          className="lg:hidden text-steel hover:text-primary p-1 -mr-1 shrink-0"
+          aria-label="Close menu"
+        >
+          <X size={18} />
+        </button>
       </div>
-    </div>
+
+      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
+        {groups.map((group) => (
+          <div key={group.name}>
+            <div className="label px-2 mb-1.5">{group.name}</div>
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <NavLink
+                    key={item.key}
+                    to={`/${item.key}`}
+                    className={({ isActive }: { isActive: boolean }) =>
+                      cn(
+                        'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors',
+                        isActive
+                          ? 'bg-accent/10 text-accent font-medium'
+                          : 'text-steel hover:text-primary hover:bg-line/60'
+                      )
+                    }
+                  >
+                    <Icon size={17} className="shrink-0" />
+                    {item.label}
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      <div className="border-t border-line p-3">
+        <div className="flex items-center gap-2.5 px-1.5 mb-2">
+          <Avatar name={user?.name} size={32} />
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-primary truncate">{user?.name || ''}</div>
+            <div className="text-[10px] text-steel truncate">{user?.roleName || (role ? ROLE_LABELS[role] : '')}</div>
+          </div>
+        </div>
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-steel hover:text-stopped hover:bg-stopped/10 transition-colors"
+        >
+          <LogOut size={16} /> Sign out
+        </button>
+      </div>
+    </>
   );
 
   return (
     <>
-      {/* Mobile hamburger button (hidden on desktop via CSS class) */}
-      <button className="sidebar-burger" onClick={() => setOpen(true)} aria-label="Open menu">
+      <button
+        className="lg:hidden fixed top-3 left-3 z-30 w-10 h-10 rounded-lg bg-surface border border-line flex items-center justify-center text-primary shadow-panel"
+        onClick={() => setOpen(true)}
+        aria-label="Open menu"
+      >
         <Menu size={22} />
       </button>
 
-      {/* Desktop sidebar (hidden on mobile via CSS class) */}
-      <aside className="sidebar-desktop" style={S.aside}>
-        {brand}
-        {nav}
-      </aside>
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-primary/40 backdrop-blur-[1px] lg:hidden"
+          onClick={() => setOpen(false)}
+          aria-hidden
+        />
+      )}
 
-      {/* Mobile drawer + overlay */}
-      {open && <div className="sidebar-overlay" onClick={() => setOpen(false)} />}
-      <aside className={`sidebar-drawer ${open ? 'is-open' : ''}`} style={S.drawer}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {brand}
-          <button onClick={() => setOpen(false)} style={S.closeBtn} aria-label="Close menu"><X size={20} /></button>
-        </div>
-        {nav}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 w-64 bg-surface border-r border-line flex flex-col shadow-sm',
+          'transform transition-transform duration-200 ease-out',
+          'lg:sticky lg:top-0 lg:h-screen lg:self-start lg:z-auto lg:w-60 lg:shrink-0 lg:translate-x-0',
+          open ? 'translate-x-0' : '-translate-x-full'
+        )}
+      >
+        {content}
       </aside>
     </>
   );
 }
-
-const S: Record<string, React.CSSProperties> = {
-  aside: {
-    width: 'var(--sidebar-w)', minWidth: 'var(--sidebar-w)', height: '100vh',
-    background: 'var(--surface)', borderRight: '1px solid var(--border)',
-    position: 'sticky', top: 0, display: 'flex', flexDirection: 'column', overflowY: 'auto',
-  },
-  drawer: {
-    width: 'var(--sidebar-w)', height: '100vh', background: 'var(--surface)',
-    borderRight: '1px solid var(--border)', position: 'fixed', top: 0, left: 0,
-    display: 'flex', flexDirection: 'column', overflowY: 'auto', zIndex: 60,
-  },
-  brand: { display: 'flex', alignItems: 'center', gap: 12, padding: '20px 18px' },
-  logo: { width: 38, height: 38, borderRadius: 10, background: 'linear-gradient(135deg,#3b5bfd,#6d83ff)', display: 'grid', placeItems: 'center' },
-  brandName: { fontWeight: 800, fontSize: 15, color: 'var(--text)' },
-  brandSub: { fontSize: 11, color: 'var(--text-faint)' },
-  nav: { padding: '4px 12px 24px' },
-  groupLabel: { fontSize: 10, fontWeight: 700, letterSpacing: '.08em', color: 'var(--text-faint)', padding: '0 10px 8px' },
-  link: { display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px', borderRadius: 10, color: 'var(--text-muted)', fontSize: 14, fontWeight: 500, marginBottom: 2 },
-  linkActive: { background: 'var(--brand-soft)', color: 'var(--brand)', fontWeight: 700 },
-  closeBtn: { background: 'none', border: 'none', color: 'var(--text-muted)', padding: 18, cursor: 'pointer' },
-};

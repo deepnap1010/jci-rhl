@@ -34,6 +34,8 @@ import tasksRoute from './routes/tasks';
 import orgRoute from './routes/org';
 import aiRoute from './routes/ai';
 import { sweepEscalations } from './lib/escalation';
+import { attachLive, setupRedisAdapter, nudge } from './lib/live';
+import { departmentFor } from './lib/derive';
 
 const app = express();
 
@@ -123,10 +125,8 @@ const io = new Server(httpServer, {
   cors: { origin: '*' }, // tighten in production
 });
 
-io.on('connection', (socket) => {
-  console.log('🔌 client connected:', socket.id);
-  socket.on('disconnect', () => console.log('🔌 client disconnected:', socket.id));
-});
+// Socket auth + scope-room joins are wired in attachLive(io) during startup
+// (after the optional Redis adapter is attached). See ./lib/live.
 
 // make io available to routes via req.app.get('io')
 app.set('io', io);
@@ -155,13 +155,27 @@ connectDB()
         console.warn('⚠️  suspension sweep failed:', (e as Error).message);
       }
     };
-    sweepSuspensions();
-    setInterval(sweepSuspensions, 60 * 1000); // every minute
-
     // Idle-report escalation: notify supervisor after N min, plant head after M min.
     const runEscalations = () => sweepEscalations(io).catch((e) => console.warn('⚠️  escalation sweep failed:', (e as Error).message));
-    runEscalations();
-    setInterval(runEscalations, 30 * 1000); // every 30s — fine-grained enough for minute thresholds
+
+    // These sweeps must run on exactly ONE instance. In a multi-instance deployment set
+    // RUN_BACKGROUND_JOBS=false on every instance except one, or they double-fire.
+    if (process.env.RUN_BACKGROUND_JOBS !== 'false') {
+      sweepSuspensions();
+      setInterval(sweepSuspensions, 60 * 1000); // every minute
+      runEscalations();
+      setInterval(runEscalations, 30 * 1000);   // every 30s — fine for minute thresholds
+    } else {
+      console.log('⏭️  Background sweeps disabled here (RUN_BACKGROUND_JOBS=false)');
+    }
+
+    // Real-time layer: attach the optional Redis adapter (multi-instance), then
+    // authenticate sockets and join them to their scope rooms.
+    const usedRedis = await setupRedisAdapter(io);
+    attachLive(io);
+    console.log(usedRedis
+      ? '🔌 Socket.IO: Redis adapter enabled (multi-instance ready)'
+      : '🔌 Socket.IO: in-memory adapter (single process)');
 
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
@@ -173,11 +187,12 @@ connectDB()
     //     we watch the regular 'machines' collection instead. The
     //     frontend also polls every few seconds as a safety net.
     try {
-      const stream = MachineModel.watch();
-      let t: ReturnType<typeof setTimeout>;
-      stream.on('change', () => {
-        clearTimeout(t);
-        t = setTimeout(() => io.emit('state:update', {}), 700);
+      // fullDocument lets us read WHICH machine changed → nudge only its scope rooms
+      // (the machine's room + its department + the fleet), not every connected client.
+      const stream = MachineModel.watch([], { fullDocument: 'updateLookup' });
+      stream.on('change', (change) => {
+        const doc = (change as { fullDocument?: { machineId?: string; type?: string } }).fullDocument;
+        nudge(io, doc?.machineId, doc ? departmentFor({}, doc.type) : undefined);
       });
       stream.on('error', (e) => console.warn('⚠️  change-stream error (frontend polling covers it):', e.message));
       console.log('👁️  Watching machines change stream for live updates');

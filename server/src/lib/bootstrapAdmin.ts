@@ -34,7 +34,7 @@ export async function bootstrapSuperAdmin(): Promise<void> {
     name,
     email,
     role: 'superAdmin',
-    mustChangePassword: false, // the bootstrap admin sets its own password via .env
+    mustChangePassword: true, // the bootstrap admin sets its own password via .env
     isActive: true,
   });
   await (user as any).setPassword(password);

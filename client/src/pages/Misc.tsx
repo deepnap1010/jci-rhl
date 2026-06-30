@@ -1,9 +1,11 @@
 // ============================================================
 //  AI QUERY PAGE + generic placeholder for pages not yet built
+//  EKC re-skin — visual layer only, logic/behaviour unchanged.
 // ============================================================
 import { useEffect, useRef, useState } from 'react';
 import { Sparkles, Send } from 'lucide-react';
 import { api } from '../api/client';
+import { cn } from '../lib/utils';
 
 const CHIPS = [
   'How many machines are running?',
@@ -13,7 +15,7 @@ const CHIPS = [
   'Show me all pending jobs',
 ];
 
-type ChatMsg = { role: 'user' | 'ai'; text: string; tools?: string[] };
+type ChatMsg = { role: 'user' | 'ai'; text: string; tools?: string[]; detail?: string };
 
 export function AiQuery() {
   const [q, setQ] = useState('');
@@ -33,79 +35,85 @@ export function AiQuery() {
       const { data } = await api.post<{ answer: string; toolsUsed: string[] }>('/api/ai/query', { question: text });
       setMsgs((m) => [...m, { role: 'ai', text: data.answer, tools: data.toolsUsed }]);
     } catch (e: unknown) {
-      const err = e as { response?: { status?: number; data?: { error?: string } } };
+      const err = e as { response?: { status?: number; data?: { error?: string; detail?: string } } };
       const msg = err?.response?.status === 503
         ? 'AI isn’t configured yet — add a GEMINI_API_KEY on the server to enable it.'
         : err?.response?.data?.error || 'Sorry, I couldn’t answer that right now.';
-      setMsgs((m) => [...m, { role: 'ai', text: msg }]);
+      setMsgs((m) => [...m, { role: 'ai', text: msg, detail: err?.response?.data?.detail }]);
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div style={{ padding: '0 28px 40px' }}>
-      <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 150px)' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center', background: 'linear-gradient(180deg,#f5f7ff,#fff)' }}>
-          <Sparkles size={18} color="var(--brand)" />
+    <div className="px-5 sm:px-7 pt-1 pb-10">
+      <div className="panel flex flex-col overflow-hidden h-[calc(100vh-150px)]">
+        {/* header */}
+        <div className="flex items-center gap-2.5 px-5 py-4 border-b border-line">
+          <span className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center shrink-0"><Sparkles size={18} className="text-accent" /></span>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>AI Query</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Ask about machines, production, jobs and downtime — answers come from your live data.</div>
+            <div className="text-base font-extrabold text-primary leading-tight">AI Query</div>
+            <div className="text-xs text-steel">Ask about machines, production, jobs and downtime — answers come from your live data.</div>
           </div>
         </div>
 
         {/* messages */}
-        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-[18px] flex flex-col gap-3">
           {msgs.length === 0 && (
-            <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', maxWidth: 440 }}>
-              <Sparkles size={26} color="var(--brand)" style={{ opacity: 0.7 }} />
-              <div style={{ fontWeight: 700, marginTop: 8, color: 'var(--text)' }}>Ask anything about the plant</div>
-              <div style={{ fontSize: 13, marginTop: 4 }}>Try one of the suggestions below, or type your own question.</div>
+            <div className="m-auto text-center text-steel max-w-[440px]">
+              <Sparkles size={26} className="text-accent opacity-70 mx-auto" />
+              <div className="font-bold mt-2 text-primary">Ask anything about the plant</div>
+              <div className="text-[13px] mt-1">Try one of the suggestions below, or type your own question.</div>
             </div>
           )}
           {msgs.map((m, i) => (
-            <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
-              <div style={{
-                padding: '10px 14px', borderRadius: 14, fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap',
-                background: m.role === 'user' ? 'var(--brand)' : 'var(--surface-2)',
-                color: m.role === 'user' ? '#fff' : 'var(--text)',
-                borderTopRightRadius: m.role === 'user' ? 4 : 14, borderTopLeftRadius: m.role === 'user' ? 14 : 4,
-              }}>{m.text}</div>
+            <div key={i} className={cn('max-w-[80%]', m.role === 'user' ? 'self-end' : 'self-start')}>
+              <div className={cn(
+                'px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap',
+                m.role === 'user' ? 'bg-accent text-white rounded-tr-[4px]' : 'bg-raised text-primary rounded-tl-[4px]',
+              )}>{m.text}</div>
               {m.tools && m.tools.length > 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, marginLeft: 6 }}>
+                <div className="text-[11px] text-steel mt-1 ml-1.5">
                   ↳ from {Array.from(new Set(m.tools)).map((t) => t.replace(/^get_/, '').replace(/_/g, ' ')).join(', ')}
                 </div>
+              )}
+              {m.detail && (
+                <details className="mt-1 ml-1.5">
+                  <summary className="text-[11px] text-steel cursor-pointer hover:text-primary select-none">Show technical detail</summary>
+                  <pre className="mt-1 whitespace-pre-wrap break-words bg-raised border border-line rounded-lg p-2 text-[10.5px] text-steel max-h-40 overflow-auto">{m.detail}</pre>
+                </details>
               )}
             </div>
           ))}
           {loading && (
-            <div style={{ alignSelf: 'flex-start', padding: '10px 14px', borderRadius: 14, background: 'var(--surface-2)', color: 'var(--text-muted)', fontSize: 14 }}>
+            <div className="self-start px-3.5 py-2.5 rounded-2xl rounded-tl-[4px] bg-raised text-steel text-sm">
               Thinking…
             </div>
           )}
         </div>
 
         {/* suggestions + input */}
-        <div style={{ borderTop: '1px solid var(--border)', padding: 14 }}>
+        <div className="border-t border-line p-3.5">
           {msgs.length === 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <div className="flex flex-wrap gap-2 mb-3">
               {CHIPS.map((c) => (
                 <button key={c} onClick={() => ask(c)} disabled={loading}
-                  style={{ border: '1px solid var(--border-strong)', background: 'var(--surface)', borderRadius: 99, padding: '6px 14px', fontSize: 13, color: 'var(--brand)', cursor: 'pointer' }}>
+                  className="border border-line rounded-full px-3.5 py-1.5 text-accent text-sm hover:bg-accent/5 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
                   {c}
                 </button>
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div className="flex gap-2.5">
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') ask(q); }}
               placeholder="Ask about production, machines, jobs, downtime…"
-              style={{ flex: 1, border: '1px solid var(--border-strong)', borderRadius: 10, padding: '11px 14px', fontSize: 14, outline: 'none' }}
+              className="input"
             />
-            <button onClick={() => ask(q)} disabled={loading || !q.trim()} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, padding: '0 18px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, opacity: loading || !q.trim() ? 0.6 : 1, cursor: loading || !q.trim() ? 'not-allowed' : 'pointer' }}>
+            <button onClick={() => ask(q)} disabled={loading || !q.trim()}
+              className="bg-accent text-white rounded-lg px-4 flex items-center gap-1.5 font-bold shrink-0 disabled:opacity-60 disabled:cursor-not-allowed">
               <Send size={16} /> Ask
             </button>
           </div>
@@ -118,10 +126,10 @@ export function AiQuery() {
 // generic "coming soon" page reused for utility/management sections
 export function Placeholder({ title }: { title: string }) {
   return (
-    <div style={{ padding: '0 28px 40px' }}>
-      <div className="card" style={{ padding: 48, textAlign: 'center' }}>
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>{title}</div>
-        <div style={{ color: 'var(--text-muted)', fontSize: 14, maxWidth: 460, margin: '0 auto' }}>
+    <div className="px-5 sm:px-7 pt-1 pb-10">
+      <div className="panel p-12 text-center">
+        <div className="text-lg font-extrabold text-primary mb-2">{title}</div>
+        <div className="text-steel text-sm max-w-[460px] mx-auto">
           This page is wired into the role-based shell and ready to build out.
           The data layer, scoping, and live updates already work — this view just
           needs its specific charts/tables added.

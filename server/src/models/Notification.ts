@@ -21,8 +21,9 @@ const NotificationSchema = new Schema(
     severity: { type: String, enum: ['info', 'warning', 'critical'], default: 'info' },
 
     // optional link to a source record + an inline action (e.g. acknowledge a downtime report)
-    refType: { type: String, default: null }, // 'downtimeReport' | null
+    refType: { type: String, default: null }, // 'downtimeReport' | 'alert' | null
     refId: { type: Schema.Types.ObjectId, default: null },
+    alertKey: { type: String, default: null, index: true }, // string key for machine-alert acks (machineId:type)
     actionType: { type: String, default: null }, // 'acknowledge' | null
     machineCode: { type: String, default: '' },
 

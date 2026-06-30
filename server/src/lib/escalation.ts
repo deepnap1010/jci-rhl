@@ -16,6 +16,7 @@
 import type { Server } from 'socket.io';
 import { DowntimeReportModel } from '../models/DowntimeReport';
 import { NotificationModel } from '../models/Notification';
+import { notifyUserLive } from './live';
 
 export function supervisorDelayMs(): number {
   return (Number(process.env.ESCALATE_SUPERVISOR_SEC) || 300) * 1000;
@@ -29,7 +30,7 @@ async function pushNotification(
   doc: Record<string, unknown> & { recipientUserId?: unknown; email?: string }
 ) {
   await NotificationModel.create(doc);
-  if (io) io.emit('notify:new', { userId: doc.recipientUserId ? String(doc.recipientUserId) : null, email: doc.email || null });
+  notifyUserLive(io, doc.recipientUserId ? String(doc.recipientUserId) : null);
 }
 
 function fmtMins(ms: number): string {

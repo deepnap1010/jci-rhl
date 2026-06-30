@@ -9,7 +9,7 @@ import { JobModel } from '../models/Job';
 import { UserModel } from '../models/User';
 import { TelemetryModel } from '../models/Telemetry';
 import { getScopedViews, latestByMachineInWindow } from '../lib/derive';
-import { DashboardData, MachineBreakdown, DEPARTMENTS, Department } from '@shared/types';
+import { DashboardData, MachineBreakdown, DEPARTMENTS, Department, User } from '@shared/types';
 
 const router = Router();
 
@@ -76,15 +76,52 @@ export async function windowMetrics(ids: string[], from: Date, to: Date): Promis
   return out;
 }
 
-router.get('/api/dashboard', async (req, res) => {
-  try {
+// Concurrent identical-scope requests collapse into ONE aggregation, and the result is cached
+// for a few seconds. This is the main defence against the broadcast→force-refetch storm:
+// thousands of users hitting /api/dashboard in the same ~700ms burst now share a single set of
+// telemetry aggregations instead of each running their own two fleet-wide $group passes.
+const DASH_TTL_MS = Number(process.env.DASHBOARD_CACHE_MS) || 4000;
+const dashCache = new Map<string, { at: number; data: DashboardData }>();
+const dashInflight = new Map<string, Promise<DashboardData>>();
+
+// Cache key = the viewer's data scope + the requested window. Admin/plantHead all share 'ALL',
+// so their requests dedupe to one query fleet-wide; scoped users key by their assignments.
+function scopeKey(user: User): string {
+  const seesAll = user.role === 'superAdmin' || user.role === 'admin' || user.role === 'plantHead';
+  if (seesAll) return 'ALL';
+  const ids = [...(user.assignedMachineIds || [])].sort().join(',');
+  const lines = [...(user.assignedLines || [])].sort().join(',');
+  return `${user.role}:${ids}:${lines}`;
+}
+
+async function getDashboard(user: User, q: { from?: string; to?: string; dayStart?: string }): Promise<DashboardData> {
+  const key = `${scopeKey(user)}|${q.from || ''}|${q.to || ''}|${q.dayStart || ''}`;
+  const hit = dashCache.get(key);
+  if (hit && Date.now() - hit.at < DASH_TTL_MS) return hit.data;       // fresh enough → serve cached
+  const flying = dashInflight.get(key);
+  if (flying) return flying;                                            // identical request in flight → await it
+  const p = (async () => {
+    try {
+      const data = await computeDashboard(user, q);
+      if (dashCache.size > 500) dashCache.clear();                      // bound the cache
+      dashCache.set(key, { at: Date.now(), data });
+      return data;
+    } finally {
+      dashInflight.delete(key);
+    }
+  })();
+  dashInflight.set(key, p);
+  return p;
+}
+
+async function computeDashboard(user: User, q: { from?: string; to?: string; dayStart?: string }): Promise<DashboardData> {
     // optional ?from=&to= → historical dashboard (each machine's latest reading in the window)
-    const f = req.query.from ? new Date(String(req.query.from)) : null;
-    const t = req.query.to ? new Date(String(req.query.to)) : null;
+    const f = q.from ? new Date(q.from) : null;
+    const t = q.to ? new Date(q.to) : null;
     const range = f && t && !isNaN(f.getTime()) && !isNaN(t.getTime()) ? { from: f, to: t } : null;
 
     // active window: a selected range, or "today" (client's local midnight in ?dayStart=) → now.
-    const ds = req.query.dayStart ? new Date(String(req.query.dayStart)) : null;
+    const ds = q.dayStart ? new Date(q.dayStart) : null;
     let winStart = range ? range.from : (ds && !isNaN(ds.getTime()) ? ds : null);
     let winEnd = range ? range.to : new Date();
     let latest = range ? await latestByMachineInWindow(range.from, range.to) : undefined;
@@ -109,7 +146,7 @@ router.get('/api/dashboard', async (req, res) => {
       }
     }
 
-    const views = await getScopedViews(req.user!, latest);
+    const views = await getScopedViews(user, latest);
 
     const running = views.filter((v) => v.status === 'running').length;
     const idle = views.filter((v) => v.status === 'idle').length;
@@ -144,7 +181,7 @@ router.get('/api/dashboard', async (req, res) => {
     const avgEfficiency = activeSec > 0 ? Math.round((runningSec / activeSec) * 100) : 0;
 
     // jobs (scoped by machine) + employees (scoped by department)
-    const isAdmin = req.user!.role === 'superAdmin' || req.user!.role === 'admin' || req.user!.role === 'plantHead';
+    const isAdmin = user.role === 'superAdmin' || user.role === 'admin' || user.role === 'plantHead';
     const scopedMachineIds = new Set(views.map((v) => v.machineId));
     const scopedDepts = new Set(views.map((v) => v.department));
 
@@ -200,6 +237,16 @@ router.get('/api/dashboard', async (req, res) => {
       stale,
       lastUpdated,
     };
+    return data;
+}
+
+router.get('/api/dashboard', async (req, res) => {
+  try {
+    const data = await getDashboard(req.user!, {
+      from: req.query.from ? String(req.query.from) : undefined,
+      to: req.query.to ? String(req.query.to) : undefined,
+      dayStart: req.query.dayStart ? String(req.query.dayStart) : undefined,
+    });
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to load dashboard' });

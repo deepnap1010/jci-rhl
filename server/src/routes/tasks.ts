@@ -13,6 +13,7 @@ import { TaskModel } from '../models/Task';
 import { UserModel } from '../models/User';
 import { NotificationModel } from '../models/Notification';
 import { subtreeIds } from '../lib/orgTree';
+import { notifyUserLive } from '../lib/live';
 
 const router = Router();
 
@@ -147,8 +148,7 @@ router.post('/api/tasks', async (req, res) => {
       title: `New task from ${me.name || 'your manager'}`,
       body: `${task.get('taskNumber')} · ${title}${target ? ` · target ${target.toLocaleString()} mtr` : ''}${b.details ? ` — ${b.details}` : ''}`,
     });
-    const io = req.app.get('io');
-    if (io) io.emit('notify:new', { userId: String(assignee._id), email });
+    notifyUserLive(req.app.get('io'), String(assignee._id));
 
     res.json({ ok: true, id: task._id, taskNumber: task.get('taskNumber') });
   } catch (err) {
@@ -184,8 +184,7 @@ router.patch('/api/tasks/:id', async (req, res) => {
           title: `Task completed`,
           body: `${task.get('assignedToName')} completed "${task.get('title')}"`,
         });
-        const io = req.app.get('io');
-        if (io) io.emit('notify:new', { userId: String(assigner._id), email: assigner.email });
+        notifyUserLive(req.app.get('io'), String(assigner._id));
       }
     }
 

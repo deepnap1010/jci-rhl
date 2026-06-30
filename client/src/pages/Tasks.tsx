@@ -1,8 +1,9 @@
+// client/src/pages/Tasks.tsx
 // ============================================================
-//  TASKS  —  delegated work down the org chart
+//  TASKS  —  delegated work down the org chart  (EKC re-skin)
 //  Managers assign tasks to their direct reports; the assignee is
 //  notified and works it. Production Head → Production Manager →
-//  Supervisor → Operator.
+//  Supervisor → Operator.  Visual layer only — logic unchanged.
 // ============================================================
 import { useState, useRef } from 'react';
 import { Send, Inbox, ListChecks } from 'lucide-react';
@@ -11,14 +12,19 @@ import type { TaskRow } from '../hooks/useData';
 import type { Role } from '@shared/types';
 import { ROLE_LABELS } from '../config/nav';
 import { useToast } from '../components/Toast';
-import { inputStyle } from '../components/ui';
 import OrgCascadePicker from '../components/OrgCascadePicker';
 import type { CascadeSelection } from '../components/OrgCascadePicker';
+import { cn } from '../lib/utils';
 
-const STATUS: Record<TaskRow['status'], { label: string; bg: string; color: string }> = {
-  assigned: { label: 'Pending', bg: '#eef2ff', color: '#3b5bfd' },
-  inProgress: { label: 'In Progress', bg: '#fff7e6', color: '#8a5d00' },
-  done: { label: 'Completed', bg: '#e7f6ec', color: '#15803d' },
+const FIELD = 'w-full bg-base border border-line rounded-lg px-3 py-2.5 text-sm text-primary outline-none focus:border-accent placeholder:text-steel/50';
+const LBL = 'text-[11px] font-bold uppercase tracking-wide text-steel mb-1.5';
+const B = 'font-semibold text-primary';
+
+// unified status pill — Pending=amber · In Progress=teal · Completed=steel
+const STATUS: Record<TaskRow['status'], { label: string; cls: string; text: string }> = {
+  assigned: { label: 'Pending', cls: 'bg-idle/10 text-idle', text: 'text-idle' },
+  inProgress: { label: 'In Progress', cls: 'bg-running/10 text-running', text: 'text-running' },
+  done: { label: 'Completed', cls: 'bg-steel/10 text-steel', text: 'text-steel' },
 };
 // dropdown options (internal value → label)
 const STATUS_OPTIONS: { value: TaskRow['status']; label: string }[] = [
@@ -121,20 +127,18 @@ export default function Tasks() {
     }
   }
 
-  const full: React.CSSProperties = { ...inputStyle, width: '100%' };
-
   return (
-    <div style={{ padding: '0 28px 40px' }}>
+    <div className="px-5 sm:px-7 pb-10">
       {/* Assign a task */}
       {canAssign && (
-        <div className="card" style={{ padding: 20, marginBottom: 20 }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, fontWeight: 800, marginBottom: 16 }}>
-            <Send size={18} /> Assign a task to your team
+        <div className="panel p-5 mb-5">
+          <h3 className="flex items-center gap-2 text-base font-extrabold mb-4 text-primary">
+            <Send size={18} className="text-accent" /> Assign a task to your team
           </h3>
           {linkable.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Link a job to pass down (optional) — auto-fills title, target &amp; stage</span>
-              <select style={{ ...full, marginTop: 5 }} value={linked?.key || ''} onChange={(e) => linkJob(e.target.value)}>
+            <div className="mb-3.5">
+              <span className="text-xs font-bold text-steel">Link a job to pass down (optional) — auto-fills title, target &amp; stage</span>
+              <select className={cn(FIELD, 'mt-1.5')} value={linked?.key || ''} onChange={(e) => linkJob(e.target.value)}>
                 <option value="">— none (write a new task) —</option>
                 {fromJobs.length > 0 && (
                   <optgroup label="Unassigned jobs">
@@ -148,49 +152,49 @@ export default function Tasks() {
                 )}
               </select>
               {linked && (
-                <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>
-                  Linked to <b className="mono" style={{ color: 'var(--text)' }}>{linked.jobNumber}</b> · stage <b style={{ color: 'var(--text)' }}>{linked.stage}</b>{linked.machineCode ? ` · ${linked.machineCode}` : ''}
+                <div className="text-xs text-steel/60 mt-1.5">
+                  Linked to <b className={B}>{linked.jobNumber}</b> · stage <b className={B}>{linked.stage}</b>{linked.machineCode ? ` · ${linked.machineCode}` : ''}
                 </div>
               )}
             </div>
           )}
           <form onSubmit={submit}>
-            <div className="grid-two" style={{ gap: 14, marginBottom: 16 }}>
+            <div className="grid-two mb-4" style={{ gap: 14 }}>
               <Field label="Task / job title">
-                <input style={full} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Run batch B-204" />
+                <input className={FIELD} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Run batch B-204" />
               </Field>
               <Field label="Notes (optional)">
-                <input style={full} value={form.details} onChange={(e) => set('details', e.target.value)} placeholder="Any instructions…" />
+                <input className={FIELD} value={form.details} onChange={(e) => set('details', e.target.value)} placeholder="Any instructions…" />
               </Field>
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
+            <div className="text-[13px] font-extrabold mb-2 text-primary">
               Assign to{splits.length > 1 ? ` — split across ${splits.length} people` : ''}
             </div>
             {splits.map((s, i) => (
-              <div key={s.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 14, marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-muted)' }}>Person {i + 1}{s.sel ? ` — ${s.sel.name}` : ''}</span>
+              <div key={s.id} className="border border-line rounded-xl p-3.5 mb-2.5 bg-raised">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-bold text-[13px] text-steel">Person {i + 1}{s.sel ? ` — ${s.sel.name}` : ''}</span>
                   {splits.length > 1 && (
-                    <button type="button" onClick={() => removeSplit(s.id)} style={{ border: 'none', background: 'none', color: 'var(--stopped)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Remove</button>
+                    <button type="button" onClick={() => removeSplit(s.id)} className="text-stopped font-bold text-[13px] hover:underline">Remove</button>
                   )}
                 </div>
                 <OrgCascadePicker onChange={(sel) => setSplitSel(s.id, sel)} />
-                <div style={{ marginTop: 10 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Target for this person (mtr)</span>
-                  <input style={{ ...full, marginTop: 5 }} type="number" value={s.target} onChange={(e) => setSplitTarget(s.id, e.target.value)} placeholder="0" />
+                <div className="mt-2.5">
+                  <span className="text-xs font-bold text-steel">Target for this person (mtr)</span>
+                  <input className={cn(FIELD, 'mt-1.5')} type="number" value={s.target} onChange={(e) => setSplitTarget(s.id, e.target.value)} placeholder="0" />
                 </div>
               </div>
             ))}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 4, marginBottom: 16, flexWrap: 'wrap' }}>
-              <button type="button" onClick={addSplit} style={{ border: '1px dashed var(--border-strong)', background: 'var(--surface)', borderRadius: 10, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', color: 'var(--brand)' }}>
+            <div className="flex items-center gap-3.5 mt-1 mb-4 flex-wrap">
+              <button type="button" onClick={addSplit} className="border border-dashed border-line bg-base rounded-lg px-3.5 py-2 font-bold text-[13px] text-accent hover:border-accent/40 transition-colors">
                 + Split — add another person
               </button>
               {linked && (
-                <span style={{ fontSize: 13, color: assignedTotal === linkedRemaining ? 'var(--running)' : assignedTotal > linkedRemaining ? 'var(--stopped)' : 'var(--text-muted)' }}>
-                  Distributing <b>{assignedTotal.toLocaleString()}</b> of <b>{linkedRemaining.toLocaleString()}</b> remaining
-                  {linkedAssigned > 0 && <span style={{ color: 'var(--text-faint)' }}> (target {linked.targetProduction.toLocaleString()}, {linkedAssigned.toLocaleString()} already assigned)</span>}
+                <span className={cn('text-[13px]', assignedTotal === linkedRemaining ? 'text-running' : assignedTotal > linkedRemaining ? 'text-stopped' : 'text-steel')}>
+                  Distributing <b className="font-bold">{assignedTotal.toLocaleString()}</b> of <b className="font-bold">{linkedRemaining.toLocaleString()}</b> remaining
+                  {linkedAssigned > 0 && <span className="text-steel/60"> (target {linked.targetProduction.toLocaleString()}, {linkedAssigned.toLocaleString()} already assigned)</span>}
                   {assignedTotal === linkedRemaining
                     ? ' · ✓ balanced'
                     : assignedTotal < linkedRemaining
@@ -200,7 +204,7 @@ export default function Tasks() {
               )}
             </div>
 
-            <button type="submit" disabled={busy} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 20px', fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: busy ? 0.7 : 1 }}>
+            <button type="submit" disabled={busy} className="bg-accent text-white rounded-lg px-5 py-2.5 font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-70">
               {busy ? 'Assigning…' : validCount > 1 ? `Assign to ${validCount} people` : 'Assign task'}
             </button>
           </form>
@@ -208,7 +212,7 @@ export default function Tasks() {
       )}
 
       {/* Assigned to me */}
-      <Section icon={<Inbox size={16} />} title="Assigned to me" count={toMe.length}>
+      <Section icon={<Inbox size={16} className="text-accent" />} title="Assigned to me" count={toMe.length}>
         {toMe.length === 0 ? (
           <Empty>No tasks assigned to you.</Empty>
         ) : (
@@ -218,7 +222,7 @@ export default function Tasks() {
 
       {/* Tasks I assigned */}
       {byMe.length > 0 && (
-        <Section icon={<ListChecks size={16} />} title="Tasks I assigned" count={byMe.length}>
+        <Section icon={<ListChecks size={16} className="text-accent" />} title="Tasks I assigned" count={byMe.length}>
           {byMe.map((t) => <TaskCard key={t._id} t={t} />)}
         </Section>
       )}
@@ -229,33 +233,33 @@ export default function Tasks() {
 function TaskCard({ t, mine, onStatus }: { t: TaskRow; mine?: boolean; onStatus?: (id: string, s: TaskRow['status']) => void }) {
   const s = STATUS[t.status];
   return (
-    <div className="card" style={{ padding: 16, marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0 }}>
+    <div className="panel p-4 mb-3">
+      <div className="flex justify-between gap-3 items-start">
+        <div className="min-w-0">
           {(t.taskNumber || t.jobNumber) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-              {t.taskNumber && <span className="mono" style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand)', background: 'var(--brand-soft)', padding: '2px 7px', borderRadius: 6 }}>{t.taskNumber}</span>}
-              {t.jobNumber && <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>↳ Job {t.jobNumber}</span>}
+            <div className="flex items-center gap-2 mb-1">
+              {t.taskNumber && <span className="data text-[11px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">{t.taskNumber}</span>}
+              {t.jobNumber && <span className="data text-[11px] text-steel/60">↳ Job {t.jobNumber}</span>}
             </div>
           )}
-          <div style={{ fontWeight: 800, fontSize: 15 }}>{t.title}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
-            {mine ? <>from <b style={{ color: 'var(--text)' }}>{t.assignedByName}</b> ({ROLE_LABELS[t.assignedByRole as Role] ?? t.assignedByRole})</>
-                  : <>to <b style={{ color: 'var(--text)' }}>{t.assignedToName}</b> ({ROLE_LABELS[t.assignedToRole as Role] ?? t.assignedToRole})</>}
-            {t.targetProduction ? <> · target <b style={{ color: 'var(--text)' }}>{t.targetProduction.toLocaleString()} mtr</b></> : null}
+          <div className="font-extrabold text-[15px] text-primary">{t.title}</div>
+          <div className="text-xs text-steel mt-1">
+            {mine ? <>from <b className={B}>{t.assignedByName}</b> ({ROLE_LABELS[t.assignedByRole as Role] ?? t.assignedByRole})</>
+                  : <>to <b className={B}>{t.assignedToName}</b> ({ROLE_LABELS[t.assignedToRole as Role] ?? t.assignedToRole})</>}
+            {t.targetProduction ? <> · target <b className={B}>{t.targetProduction.toLocaleString()} mtr</b></> : null}
           </div>
-          {t.details && <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 6 }}>{t.details}</div>}
+          {t.details && <div className="text-[13px] text-steel mt-1.5">{t.details}</div>}
         </div>
-        <span style={{ flex: 'none', background: s.bg, color: s.color, borderRadius: 99, padding: '4px 11px', fontSize: 12, fontWeight: 700 }}>{s.label}</span>
+        <span className={cn('pill shrink-0', s.cls)}>{s.label}</span>
       </div>
 
       {mine && onStatus && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Status</span>
+        <div className="flex items-center gap-2 mt-3">
+          <span className="text-xs font-bold text-steel">Status</span>
           <select
             value={t.status}
             onChange={(e) => onStatus(t._id, e.target.value as TaskRow['status'])}
-            style={{ ...inputStyle, width: 'auto', padding: '7px 12px', fontWeight: 700, color: STATUS[t.status].color }}
+            className={cn('bg-base border border-line rounded-lg px-3 py-1.5 text-sm font-bold outline-none focus:border-accent cursor-pointer', STATUS[t.status].text)}
           >
             {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -267,17 +271,17 @@ function TaskCard({ t, mine, onStatus }: { t: TaskRow; mine?: boolean; onStatus?
 
 function Section({ icon, title, count, children }: { icon: React.ReactNode; title: string; count: number; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 24 }}>
-      <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 800, margin: '6px 0 12px' }}>
-        {icon} {title} <span style={{ color: 'var(--text-faint)', fontWeight: 700 }}>({count})</span>
+    <div className="mb-6">
+      <h3 className="flex items-center gap-2 text-[15px] font-extrabold mt-1.5 mb-3 text-primary">
+        {icon} {title} <span className="text-steel/60 font-bold">({count})</span>
       </h3>
       {children}
     </div>
   );
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label><div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 5 }}>{label}</div>{children}</label>;
+  return <label className="block"><div className={LBL}>{label}</div>{children}</label>;
 }
 function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-muted)' }}>{children}</div>;
+  return <div className="panel p-7 text-center text-steel">{children}</div>;
 }

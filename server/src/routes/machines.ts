@@ -6,7 +6,7 @@
 // ============================================================
 import { Router } from 'express';
 import { MachineModel } from '../models/Machine';
-import { getScopedViews, latestByMachine, latestByMachineInWindow, deriveView, invalidateMachineCaches, MachineDoc } from '../lib/derive';
+import { getScopedViews, getScopedViewsStaleAware, latestByMachine, latestByMachineInWindow, deriveView, invalidateMachineCaches, MachineDoc } from '../lib/derive';
 
 const router = Router();
 
@@ -17,9 +17,14 @@ router.get('/api/machines', async (req, res) => {
     const f = req.query.from ? new Date(String(req.query.from)) : null;
     const t = req.query.to ? new Date(String(req.query.to)) : null;
     const range = f && t && !isNaN(f.getTime()) && !isNaN(t.getTime()) ? { from: f, to: t } : null;
-    const latest = range ? await latestByMachineInWindow(range.from, range.to) : undefined;
-    const views = await getScopedViews(req.user!, latest);
-    res.json(views);
+    if (range) {
+      const latest = await latestByMachineInWindow(range.from, range.to);
+      return res.json(await getScopedViews(req.user!, latest));
+    }
+    // live view — but stale-aware: if the feed is offline, show the last-recorded-day
+    // statuses (so Running/Idle/Stopped counts match the dashboard) while keeping each
+    // machine's last-known values, instead of a wall of "offline".
+    res.json(await getScopedViewsStaleAware(req.user!));
   } catch (err) {
     res.status(500).json({ error: 'Failed to load machines' });
   }

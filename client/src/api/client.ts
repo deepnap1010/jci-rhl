@@ -17,6 +17,11 @@ export function setAuthToken(t: string | null) {
   if (t) localStorage.setItem(TOKEN_KEY, t);
   else localStorage.removeItem(TOKEN_KEY);
   clearGetCache(); // never serve one user's cached data to another
+  // re-handshake the live socket so it picks up the new identity (rooms) — or drops on logout
+  if (socket) {
+    if (t) { socket.disconnect(); socket.connect(); }
+    else { socket.disconnect(); socket = null; }
+  }
 }
 
 export function getAuthToken(): string | null {
@@ -101,7 +106,14 @@ export function clearGetCache() {
 let socket: Socket | null = null;
 export function getSocket(): Socket {
   if (!socket) {
-    socket = io(API_BASE || '/', { path: '/socket.io', transports: ['websocket', 'polling'] });
+    socket = io(API_BASE || '/', {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      // Send the JWT on every (re)connection so the server can scope this socket to the
+      // user's rooms (their department / machines) and only push relevant live updates.
+      // Function form re-reads the current token on each reconnect.
+      auth: (cb) => cb({ token: getAuthToken() || '' }),
+    });
   }
   return socket;
 }

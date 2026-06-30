@@ -1,192 +1,141 @@
+/* client/src/index.css */
 /* ============================================================
-   JCI SmartFactory — design tokens + base styles
+   JCI SmartFactory — EKC-style design system
+   Tailwind + CSS-variable theming (light / dark), teal accent.
    ============================================================ */
+@import '@fontsource-variable/geist';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens as RGB channels so Tailwind's `<alpha-value>` works (bg-accent/10
+   etc.) AND the whole palette can be re-themed by swapping these variables. */
 :root {
-  --bg: #f4f6fb;
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --border: #e8ecf3;
-  --border-strong: #d9dfe9;
-  --text: #1a2233;
-  --text-muted: #6b7488;
-  --text-faint: #9aa3b2;
-  --brand: #3b5bfd;
-  --brand-soft: #eef2ff;
-  --running: #16a34a;
-  --idle: #f59e0b;
-  --stopped: #ef4444;
-  --disconnected: #94a3b8;
-  --accent-blue: #3b5bfd;
-  --accent-green: #16a34a;
-  --accent-amber: #f59e0b;
-  --accent-teal: #0d9488;
-  --accent-purple: #8b5cf6;
-  --accent-red: #ef4444;
-  --accent-pink: #ec4899;
-  --sidebar-w: 248px;
-  --radius: 14px;
-  --radius-sm: 10px;
-  --shadow: 0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04);
-  --shadow-md: 0 4px 16px rgba(16,24,40,.08);
-  font-family: 'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
+  --c-base: 244 246 249;     /* #F4F6F9 */
+  --c-surface: 255 255 255;  /* #FFFFFF */
+  --c-raised: 248 249 251;   /* #F8F9FB */
+  --c-line: 226 232 240;     /* #E2E8F0 */
+  --c-steel: 100 116 139;    /* #64748B */
+  --c-primary: 30 41 59;     /* #1E293B */
+  --c-accent: 13 148 136;    /* #0D9488  teal */
+  --c-idle: 215 119 6;       /* #D77706  amber */
+  --c-stopped: 220 38 38;    /* #DC2626  red */
+  --c-running: 13 148 136;   /* teal */
+  --c-scroll-track: 244 246 249;
+  --c-scroll-thumb: 203 213 225;
+  --c-scroll-thumb-hover: 148 163 184;
+  color-scheme: light;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
-a { color: inherit; text-decoration: none; }
-button { font-family: inherit; cursor: pointer; }
-.mono { font-family: 'JetBrains Mono','Consolas',monospace; font-variant-numeric: tabular-nums; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #d4dae6; border-radius: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
-.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; }
-.pill .dot { width: 7px; height: 7px; border-radius: 50%; }
-.pill.running { background: #e8f7ee; color: var(--running); }
-.pill.running .dot { background: var(--running); }
-.pill.idle { background: #fef5e7; color: var(--idle); }
-.pill.idle .dot { background: var(--idle); }
-.pill.stopped { background: #fdeaea; color: var(--stopped); }
-.pill.stopped .dot { background: var(--stopped); }
-.pill.disconnected { background: #eef1f5; color: var(--disconnected); }
-.pill.disconnected .dot { background: var(--disconnected); }
-@keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes bellShake { 0%,100%{transform:rotate(0)} 20%{transform:rotate(-12deg)} 40%{transform:rotate(10deg)} 60%{transform:rotate(-6deg)} 80%{transform:rotate(4deg)} }
-.bell-shake { animation: bellShake 1.4s ease-in-out infinite; transform-origin: 50% 0; }
-@keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-.toast-in { animation: toastIn .22s ease; }
+
+/* Dark theme — toggled by [data-theme="dark"] on <html>. Structure flips;
+   brand/status hues stay recognisable (slightly brighter). */
+:root[data-theme='dark'] {
+  --c-base: 15 23 42;        /* slate-900 */
+  --c-surface: 30 41 59;     /* slate-800 */
+  --c-raised: 36 49 66;
+  --c-line: 51 65 85;        /* slate-700 */
+  --c-steel: 148 163 184;    /* slate-400 */
+  --c-primary: 226 232 240;  /* slate-200 */
+  --c-accent: 20 184 166;    /* teal-500 */
+  --c-idle: 245 158 11;
+  --c-stopped: 248 113 113;
+  --c-running: 20 184 166;
+  --c-scroll-track: 15 23 42;
+  --c-scroll-thumb: 51 65 85;
+  --c-scroll-thumb-hover: 71 85 105;
+  color-scheme: dark;
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: rgb(var(--c-base));
+  color: rgb(var(--c-primary));
+  font-family: '"Geist Variable"', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* thin scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: rgb(var(--c-scroll-track)); }
+::-webkit-scrollbar-thumb { background: rgb(var(--c-scroll-thumb)); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-scroll-thumb-hover)); }
+
+@layer components {
+  .panel { @apply bg-surface border border-line rounded-card shadow-panel; }
+  .card  { @apply bg-raised border border-line rounded-card shadow-card; }
+  .data  { @apply font-mono tabular-nums; }
+  .label { @apply text-[11px] uppercase tracking-wider text-steel; }
+  .pill  { @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium; }
+  .input { @apply w-full bg-base border border-line rounded-lg px-3 py-2 text-sm text-primary outline-none focus:border-accent placeholder:text-steel/60; }
+}
+
+/* status dot pulse for running machines */
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(13,148,136,0.45); }
+  70%  { box-shadow: 0 0 0 6px rgba(13,148,136,0); }
+  100% { box-shadow: 0 0 0 0 rgba(13,148,136,0); }
+}
+.live-dot { animation: pulse-ring 2s infinite; }
+
+/* active tab underline */
+.tab-active { @apply border-b-2 border-accent text-accent font-semibold; }
+.tab-inactive { @apply border-b-2 border-transparent text-steel hover:text-primary hover:border-line; }
+
+/* brand logo: transparent PNGs. The colour version (logo.png) shows on light
+   surfaces; the white knock-out (logo-dark.png) is swapped in on dark surfaces so
+   the mark stays crisp and legible instead of sitting on a baked-in white box. */
+.brand-logo--dark { display: none; }
+[data-theme='dark'] .brand-logo--light { display: none; }
+[data-theme='dark'] .brand-logo--dark { display: inline-block; }
+
+/* ============================================================
+   GLOBAL UTILITY CLASSES (themed for EKC tokens + dark mode)
+   These are the classes the existing pages depend on: tables,
+   progress bars, stat grids, hoverable cards, mono text.
+   Re-added here (originally in the old index.css) so every page
+   keeps working AND picks up the new theme automatically.
+   ============================================================ */
+
+/* mono / tabular numbers */
+.mono { font-family: 'JetBrains Mono', 'Consolas', monospace; font-variant-numeric: tabular-nums; }
+
+/* hoverable card lift */
 .card.hoverable { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
-.card.hoverable:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl thead th { background: var(--surface-2); color: var(--text-faint); font-size: 11px; font-weight: 700; letter-spacing: .03em; text-align: left; padding: 10px 12px; white-space: nowrap; }
-.tbl tbody td { padding: 11px 12px; border-top: 1px solid var(--border); }
+.card.hoverable:hover { transform: translateY(-3px); box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,.12)); border-color: rgb(var(--c-steel) / .4); }
+
+/* data tables */
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; color: rgb(var(--c-primary)); }
+.tbl thead th {
+  background: rgb(var(--c-raised));
+  color: rgb(var(--c-steel));
+  font-size: 11px; font-weight: 700; letter-spacing: .03em;
+  text-align: left; padding: 10px 12px; white-space: nowrap;
+  border-bottom: 1px solid rgb(var(--c-line));
+}
+.tbl tbody td { padding: 11px 12px; border-top: 1px solid rgb(var(--c-line)); }
 .tbl tbody tr { transition: background .12s ease; }
-.tbl tbody tr:hover { background: var(--surface-2); }
+.tbl tbody tr:hover { background: rgb(var(--c-raised)); }
 .tbl .r { text-align: right; }
-.pbar { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+
+/* progress bar */
+.pbar { height: 8px; background: rgb(var(--c-raised)); border-radius: 999px; overflow: hidden; }
 .pbar > span { display: block; height: 100%; border-radius: 999px; transition: width .4s ease; }
 
-/* ============================================================
-   RESPONSIVE SIDEBAR
-   ============================================================ */
-.sidebar-burger {
-  display: none;
-  position: fixed; top: 12px; left: 12px; z-index: 50;
-  width: 42px; height: 42px; border-radius: 10px;
-  background: var(--surface); border: 1px solid var(--border-strong);
-  color: var(--text); align-items: center; justify-content: center; cursor: pointer;
-  box-shadow: var(--shadow);
+/* stat / layout grids (responsive) */
+.grid-stats-6, .grid-stats-4, .grid-stats-3, .grid-two {
+  display: grid;
 }
-.sidebar-overlay {
-  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
-  z-index: 55; backdrop-filter: blur(1px);
-}
-.sidebar-drawer { transform: translateX(-100%); transition: transform 0.25s ease; }
-.sidebar-drawer.is-open { transform: translateX(0); }
+.grid-stats-6 { grid-template-columns: repeat(6, 1fr); gap: 12px; }
+.grid-stats-4 { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.grid-stats-3 { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.grid-two     { grid-template-columns: 1fr 1fr; gap: 16px; }
 
-/* desktop: show fixed sidebar, hide drawer + burger */
-@media (min-width: 901px) {
-  .sidebar-drawer, .sidebar-overlay { display: none !important; }
-}
-/* mobile: hide desktop sidebar, show burger; push content clear of burger */
-@media (max-width: 900px) {
-  .sidebar-desktop { display: none !important; }
-  .sidebar-burger { display: flex; }
-  main { padding-top: 8px; }
-  /* give the topbar room so the hamburger doesn't overlap its title */
-  main > *:first-child { padding-left: 64px; }
-}
-
-/* Roles page: stack the two columns on small screens */
-@media (max-width: 760px) {
-  .roles-layout { grid-template-columns: 1fr !important; }
-}
-
-/* ============================================================
-   GRID SYSTEM  (class-based, robust)  +  responsive behaviour
-   Cards auto-stack vertically as the viewport narrows.
-   ============================================================ */
-
-/* base: all grid containers are grids */
-.grid-stats-6, .grid-stats-4, .grid-stats-3, .grid-two,
-.auto-cards, .auto-cards-sm { display: grid; }
-
-/* default (desktop) column counts */
-.grid-stats-6 { grid-template-columns: repeat(6, 1fr); }
-.grid-stats-4 { grid-template-columns: repeat(4, 1fr); }
-.grid-stats-3 { grid-template-columns: repeat(3, 1fr); }
-.grid-two     { grid-template-columns: 1fr 1fr; }
-
-/* auto-fill card grids: cards stay >= a min width, then wrap & stack on their own.
-   This is what makes cards arrange vertically when they get too close. */
-.auto-cards    { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
-.auto-cards-sm { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
-
-/* masonry (multi-column): variable-height cards pack independently, so expanding one card never
-   resizes its neighbours (unlike a grid row, which stretches to its tallest item). */
-.masonry-cards { columns: 360px; column-gap: 16px; }
-.masonry-cards > * { break-inside: avoid; -webkit-column-break-inside: avoid; margin-bottom: 16px; }
-
-/* ---- large laptop / small desktop ---- */
-@media (max-width: 1280px) {
+@media (max-width: 1100px) {
   .grid-stats-6 { grid-template-columns: repeat(4, 1fr); }
+  .grid-two     { grid-template-columns: 1fr; }
 }
-
-/* ---- tablet ---- */
-@media (max-width: 1024px) {
-  .grid-stats-6 { grid-template-columns: repeat(3, 1fr); }
-  .grid-stats-4 { grid-template-columns: repeat(2, 1fr); }
-  .grid-stats-3 { grid-template-columns: repeat(3, 1fr); }
-  .auto-cards    { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-}
-
-/* ---- small tablet / large phone ---- */
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .grid-stats-6 { grid-template-columns: repeat(2, 1fr); }
   .grid-stats-4 { grid-template-columns: repeat(2, 1fr); }
-  .grid-stats-3 { grid-template-columns: repeat(2, 1fr); }
-  .grid-two     { grid-template-columns: 1fr; }       /* charts/forms stack */
-  .roles-layout { grid-template-columns: 1fr !important; }
-  .auto-cards    { grid-template-columns: 1fr; }       /* cards stack vertically */
-  .auto-cards-sm { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .grid-stats-3 { grid-template-columns: 1fr; }
 }
-
-/* ---- phone ---- */
-@media (max-width: 480px) {
-  .grid-stats-6, .grid-stats-4, .grid-stats-3 { grid-template-columns: 1fr; }
-  .auto-cards-sm { grid-template-columns: 1fr; }
-}
-
-/* ============================================================
-   PAGE PADDING shrinks on small screens
-   ============================================================ */
-@media (max-width: 768px) {
-  main > div[style*="padding: 0 28px"],
-  main > div[style*="padding:0 28px"] { padding-left: 14px !important; padding-right: 14px !important; }
-}
-
-/* ============================================================
-   TOPBAR responsive
-   ============================================================ */
-@media (max-width: 900px) {
-  header[style*="padding: 18px 28px"],
-  header[style*="padding:18px 28px"] {
-    flex-wrap: wrap !important; gap: 10px !important;
-    padding: 14px 16px 14px 64px !important;   /* room for hamburger */
-  }
-  header > div:last-child { width: 100%; flex-wrap: wrap; gap: 10px !important; row-gap: 8px !important; }
-  header > div:last-child > div:first-child { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
-}
-@media (max-width: 560px) {
-  header .topbar-username > div:last-child { display: none; }   /* keep avatar, drop name text */
-  header h1 { font-size: 18px !important; }
-}
-
-/* ============================================================
-   TABLES + media never overflow the viewport
-   ============================================================ */
-@media (max-width: 768px) {
-  .card { overflow-x: auto; }
-}
-main, .card { max-width: 100%; }
-img, canvas, svg { max-width: 100%; height: auto; }
-* { min-width: 0; }

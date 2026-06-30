@@ -12,6 +12,8 @@
 import { Router } from 'express';
 import { MachineModel } from '../models/Machine';
 import { TelemetryModel } from '../models/Telemetry';
+import { nudge } from '../lib/live';
+import { departmentFor } from '../lib/derive';
 
 const router = Router();
 
@@ -59,8 +61,9 @@ router.post(['/api/v1/ingest', '/api/ingest'], async (req, res) => {
 
     res.status(202).json({ success: true, ok: true, message: 'reading stored' });
 
-    const io = req.app.get('io');
-    if (io) io.emit('state:update', { machineId });
+    // nudge only the clients scoped to this machine / its department (+ sees-all),
+    // coalesced so a burst of readings becomes one emit.
+    nudge(req.app.get('io'), machineId, departmentFor(data, machineType));
   } catch (err) {
     console.error('ingest error:', err);
     res.status(500).json({ success: false, error: 'server error' });

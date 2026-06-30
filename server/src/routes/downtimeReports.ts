@@ -12,6 +12,8 @@ import { UserModel } from '../models/User';
 import { MachineModel } from '../models/Machine';
 import { departmentFor } from '../lib/derive';
 import { supervisorDelayMs } from '../lib/escalation';
+import { ackMachineAlerts } from './alerts';
+import { nudge, notifyUserLive } from '../lib/live';
 import { can } from '@shared/permissions';
 
 const router = Router();
@@ -164,14 +166,30 @@ router.post('/api/downtime-reports/:id/resolve', async (req, res) => {
   try {
     const report = await DowntimeReportModel.findById(req.params.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
-    report.set('status', 'resolved');
-    report.set('resolvedAt', new Date());
-    await report.save();
+    const machineId = report.get('machineId');
+    // Resolve THIS report AND any other still-open reports for the same machine, so stale
+    // duplicates can't make the idle banner reappear after a refresh.
+    const open = await DowntimeReportModel.find(
+      { machineId, status: { $in: ['open', 'escalated', 'acknowledged'] } },
+      { _id: 1 }
+    ).lean();
+    const ids = open.map((r) => r._id);
+    if (!ids.some((x) => String(x) === String(report._id))) ids.push(report._id);
+    await DowntimeReportModel.updateMany(
+      { _id: { $in: ids } },
+      { $set: { status: 'resolved', resolvedAt: new Date() } }
+    );
     await NotificationModel.updateMany(
-      { refType: 'downtimeReport', refId: report._id },
+      { refType: 'downtimeReport', refId: { $in: ids } },
       { $set: { read: true, readAt: new Date() } }
     );
-    res.json({ ok: true });
+    // also acknowledge this machine's health alerts for the resolver, so the bell badge drops,
+    // and nudge their live views to refresh instantly.
+    try { await ackMachineAlerts(req.user!, String(machineId)); } catch { /* best-effort */ }
+    const io = req.app.get('io');
+    notifyUserLive(io, String(req.user!._id)); // refresh the bell's notifications
+    nudge(io, String(machineId));              // refresh the bell's alerts
+    res.json({ ok: true, resolved: ids.length });
   } catch (err) {
     res.status(500).json({ error: 'Failed to resolve', detail: String(err) });
   }

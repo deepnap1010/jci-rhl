@@ -12,7 +12,9 @@ import { Router } from 'express';
 import { AI_TOOLS, runTool } from '../lib/aiTools';
 
 const router = Router();
-const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+// Pin a stable GA model by default — the rolling `-latest` aliases 503 far more often.
+// Override with GEMINI_MODEL in the env (e.g. gemini-2.5-flash) if you prefer.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 const SYSTEM = `You are the JCI SmartFactory assistant for a textile production plant.
 Answer questions about the factory using ONLY the provided tools, which return LIVE data already scoped to the current user's permissions.
@@ -26,14 +28,18 @@ Rules:
 type Part = { text?: string; functionCall?: { name: string; args?: Record<string, unknown> } };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Gemini free tier intermittently returns 503 (high demand) / 429 (rate limit) — retry with backoff.
+// Gemini free tier intermittently returns 503 (overloaded) / 429 (rate limit) — retry with backoff.
+const MAX_RETRIES = Number(process.env.GEMINI_MAX_RETRIES) || 6;
 async function geminiFetch(url: string, body: unknown): Promise<Response> {
   let last: Response | null = null;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < MAX_RETRIES; i++) {
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (r.ok || (r.status !== 503 && r.status !== 429)) return r;
     last = r;
-    await sleep(1200 * (i + 1));
+    if (i < MAX_RETRIES - 1) {
+      console.warn(`⏳ Gemini ${r.status} on ${MODEL} (attempt ${i + 1}/${MAX_RETRIES}) — retrying…`);
+      await sleep(Math.min(800 * (i + 1), 3000));
+    }
   }
   return last as Response;
 }
@@ -58,11 +64,14 @@ router.post('/api/ai/query', async (req, res) => {
       };
       const r = await geminiFetch(url, body);
       if (!r.ok) {
-        const detail = (await r.text()).slice(0, 400);
-        const msg = r.status === 503 ? 'The AI is busy right now — please try again in a moment.'
+        const detail = (await r.text()).slice(0, 600);
+        console.warn(`⚠️  Gemini ${r.status} on ${MODEL}: ${detail.slice(0, 300)}`);
+        const msg = r.status === 503 ? 'The AI is busy right now (the model is overloaded) — please try again in a moment.'
           : r.status === 429 ? 'AI rate limit reached — please wait a few seconds and retry.'
+          : r.status === 404 ? `AI model "${MODEL}" was not found — set a valid GEMINI_MODEL.`
+          : r.status === 400 || r.status === 403 ? 'AI request was rejected — check GEMINI_API_KEY and model access.'
           : 'The AI service returned an error.';
-        return res.status(502).json({ error: msg, detail });
+        return res.status(502).json({ error: msg, detail, model: MODEL, upstreamStatus: r.status });
       }
       const data = await r.json() as { candidates?: { content?: { role?: string; parts?: Part[] } }[] };
       const content = data.candidates?.[0]?.content;
@@ -89,6 +98,7 @@ router.post('/api/ai/query', async (req, res) => {
 
     res.json({ answer: answer || "I couldn't find an answer for that.", toolsUsed });
   } catch (err) {
+    console.warn('⚠️  AI query failed:', String(err));
     res.status(500).json({ error: 'AI query failed', detail: String(err) });
   }
 });

@@ -3,6 +3,7 @@
 //  Click a person to reveal their team, down to operators'
 //  machines. Managers can reassign who reports to whom (within
 //  their team) right here via the "Reports to" control.
+//  EKC re-skin — visual layer only, logic unchanged.
 // ============================================================
 import { useMemo, useState } from 'react';
 import { ChevronRight, ChevronDown, Cpu, Pencil, Search, X } from 'lucide-react';
@@ -13,6 +14,7 @@ import type { Role } from '@shared/types';
 import { canReportTo } from '@shared/permissions';
 import { api } from '../api/client';
 import { useToast } from '../components/Toast';
+import { cn } from '../lib/utils';
 
 const ROLE_COLOR: Record<string, string> = {
   superAdmin: '#3b5bfd', admin: '#3b5bfd',
@@ -73,34 +75,34 @@ export default function Org() {
   }
 
   return (
-    <div style={{ padding: '0 28px 40px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: 380 }}>
-          <Search size={15} style={{ position: 'absolute', left: 11, top: 11, color: 'var(--text-faint)' }} />
+    <div className="px-5 sm:px-7 pt-1 pb-10 space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-[1_1_280px] max-w-[380px]">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel/60 pointer-events-none" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search a person by name, role or department…"
-            style={{ width: '100%', padding: '9px 32px 9px 34px', borderRadius: 10, border: '1px solid var(--border-strong)', fontSize: 13, background: 'var(--surface)' }}
+            className="input pl-9 pr-9"
           />
           {query && (
-            <button onClick={() => setQuery('')} aria-label="Clear" style={{ position: 'absolute', right: 8, top: 8, border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-faint)' }}><X size={15} /></button>
+            <button onClick={() => setQuery('')} aria-label="Clear" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-steel/60 hover:text-primary transition-colors"><X size={15} /></button>
           )}
         </div>
-        <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+        <span className="text-sm text-steel">
           {search.searching
             ? `${search.matchIds.size} match${search.matchIds.size === 1 ? '' : 'es'} — showing each with their full team`
-            : <>Click a person to expand their team. {viewerLabel && <>Viewing as <b style={{ color: 'var(--text)' }}>{viewerLabel}</b>.</>} Use ✎ to change who someone reports to.</>}
+            : <>Click a person to expand their team. {viewerLabel && <>Viewing as <b className="text-primary">{viewerLabel}</b>.</>} Use ✎ to change who someone reports to.</>}
         </span>
       </div>
       {nodes.length === 0 ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+        <div className="card p-10 text-center text-steel">
           No team members to show yet — assign people a manager in User Management, or use ✎ here.
         </div>
       ) : noMatches ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No one matches “{query}”.</div>
+        <div className="card p-10 text-center text-steel">No one matches “{query}”.</div>
       ) : (
-        <div className="card" style={{ padding: 12 }}>
+        <div className="panel p-3">
           {nodes.map((n) => (
             <Node key={n.id} node={n} depth={0} parentId="" defaultOpen={nodes.length <= 3}
               everyone={everyone} isAdmin={isAdmin} onReassign={reassign} search={search} />
@@ -136,34 +138,36 @@ function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassig
     <div>
       <div
         onClick={() => expandable && setOpen((o) => !o)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 10,
-          marginLeft: depth * 22, cursor: expandable ? 'pointer' : 'default',
-          background: isMatch ? 'rgba(59,91,253,.10)' : open && expandable ? 'var(--surface-2)' : 'transparent',
-          boxShadow: isMatch ? 'inset 0 0 0 1.5px var(--brand)' : undefined,
-        }}
+        style={{ marginLeft: depth * 22 }}
+        className={cn(
+          'flex items-center gap-2.5 px-2.5 py-2 rounded-lg',
+          expandable ? 'cursor-pointer' : 'cursor-default',
+          isMatch
+            ? 'bg-accent/10 ring-1 ring-accent'
+            : open && expandable ? 'bg-raised' : 'hover:bg-raised',
+        )}
       >
-        <span style={{ width: 18, color: 'var(--text-faint)' }}>
+        <span className="w-[18px] text-steel/60">
           {expandable ? (open ? <ChevronDown size={16} /> : <ChevronRight size={16} />) : null}
         </span>
-        <div style={{ width: 34, height: 34, borderRadius: '50%', flex: 'none', display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 800, fontSize: 13, background: color }}>
+        <div className="w-[34px] h-[34px] rounded-full flex-none grid place-items-center text-white font-extrabold text-[13px]" style={{ background: color }}>
           {initials(node.name)}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: isMatch ? 'var(--brand)' : undefined }}>{node.name}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            <span style={{ color, fontWeight: 700 }}>{roleLabel}</span>
+        <div className="flex-1 min-w-0">
+          <div className={cn('font-bold text-sm', isMatch && 'text-accent')}>{node.name}</div>
+          <div className="text-xs text-steel">
+            <span className="font-bold" style={{ color }}>{roleLabel}</span>
             {node.department ? ` · ${node.department}` : ''}
           </div>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
+        <div className="text-xs text-steel/60 whitespace-nowrap">
           {hasChildren ? `${node.reports} report${node.reports > 1 ? 's' : ''}` : showMachines ? `${node.machines.length} machine${node.machines.length > 1 ? 's' : ''}` : ''}
         </div>
         {canEdit && (
           <button
             onClick={(e) => { e.stopPropagation(); setEditing((v) => !v); }}
             title="Change who this person reports to"
-            style={{ border: '1px solid var(--border-strong)', background: 'var(--surface)', borderRadius: 8, width: 28, height: 28, display: 'grid', placeItems: 'center', color: 'var(--text-muted)', cursor: 'pointer', flex: 'none' }}
+            className="border border-line bg-base rounded-lg w-7 h-7 grid place-items-center text-steel hover:text-primary transition-colors flex-none"
           >
             <Pencil size={13} />
           </button>
@@ -171,13 +175,13 @@ function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassig
       </div>
 
       {editing && (
-        <div style={{ marginLeft: depth * 22 + 28, display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 10px' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Reports to</span>
+        <div className="flex items-center gap-2 pt-1 pb-2.5" style={{ marginLeft: depth * 22 + 28 }}>
+          <span className="text-xs font-bold text-steel">Reports to</span>
           <select
             defaultValue={parentId}
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => { onReassign(node.id, e.target.value); setEditing(false); }}
-            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border-strong)', fontSize: 13, fontWeight: 600, background: 'var(--surface)' }}
+            className="input w-auto py-1.5 font-semibold"
           >
             <option value="">— no manager —</option>
             {candidates.map((p) => (
@@ -192,11 +196,11 @@ function Node({ node, depth, parentId, defaultOpen, everyone, isAdmin, onReassig
       ))}
 
       {open && showMachines && (
-        <div style={{ marginLeft: (depth + 1) * 22 + 28, display: 'flex', flexWrap: 'wrap', gap: 6, padding: '2px 0 10px' }}>
+        <div className="flex flex-wrap gap-1.5 pt-0.5 pb-2.5" style={{ marginLeft: (depth + 1) * 22 + 28 }}>
           {node.machines.map((m) => (
-            <span key={m.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 9px', fontSize: 12 }}>
+            <span key={m.code} className="inline-flex items-center gap-1.5 bg-raised border border-line rounded-lg px-2.5 py-1 text-xs">
               <Cpu size={12} /> <b className="mono">{m.code}</b>
-              {m.department ? <span style={{ color: 'var(--text-faint)' }}>· {m.department}</span> : null}
+              {m.department ? <span className="text-steel/60">· {m.department}</span> : null}
             </span>
           ))}
         </div>

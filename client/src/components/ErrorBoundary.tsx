@@ -7,6 +7,7 @@
 // ============================================================
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import { AlertTriangle } from 'lucide-react';
 
 interface Props { children: ReactNode }
 interface State { error: Error | null }
@@ -26,24 +27,26 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div style={{ padding: '60px 28px', textAlign: 'center' }}>
-        <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>This screen hit an error</div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, maxWidth: 520, marginInline: 'auto' }}>
+      <div className="panel p-10 text-center max-w-[560px] mx-auto my-12">
+        <AlertTriangle size={40} className="text-stopped mx-auto mb-3" />
+        <div className="text-lg font-bold text-primary mb-1.5">This screen hit an error</div>
+        <div className="text-steel text-sm mb-5 max-w-[520px] mx-auto">
           {this.state.error.message || 'An unexpected error occurred.'}
         </div>
-        <button
-          onClick={() => this.setState({ error: null })}
-          style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px', fontWeight: 700 }}
-        >
-          Try again
-        </button>
-        <button
-          onClick={() => window.location.reload()}
-          style={{ marginLeft: 10, background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border-strong)', borderRadius: 10, padding: '10px 18px', fontWeight: 700 }}
-        >
-          Reload app
-        </button>
+        <div className="flex items-center justify-center gap-2.5">
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="bg-accent text-white rounded-lg px-4 py-2 text-sm font-semibold"
+          >
+            Try again
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-surface text-steel border border-line rounded-lg px-4 py-2 text-sm font-semibold"
+          >
+            Reload app
+          </button>
+        </div>
       </div>
     );
   }

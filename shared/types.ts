@@ -116,7 +116,9 @@ export interface User {
   _id: string;
   name: string;
   email?: string; // login identifier
-  role: Role;
+  role: Role; // the EFFECTIVE built-in role used for auth/scope enforcement
+  roleSlug?: string | null; // the admin-created role actually assigned (for display)
+  roleName?: string | null; // its display name
   assignedMachineIds: string[]; // for supervisor / operator
   assignedLines: Department[]; // for prodManager
   mustChangePassword?: boolean; // true until a freshly-created user resets their temp password

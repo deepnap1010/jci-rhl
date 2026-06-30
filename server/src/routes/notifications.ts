@@ -21,9 +21,17 @@ function mineFilter(user: User) {
 
 router.get('/api/notifications', async (req, res) => {
   try {
-    const filter = mineFilter(req.user!);
-    const docs = await NotificationModel.find(filter).sort({ createdAt: -1 }).limit(50).lean();
-    const unread = await NotificationModel.countDocuments({ ...filter, read: false });
+    const base = mineFilter(req.user!);
+    // ?scope=unread|read narrows the list; the bell calls with no params (recent 50).
+    const scope = String(req.query.scope || '');
+    const listFilter = scope === 'unread' ? { ...base, read: false } : scope === 'read' ? { ...base, read: true } : base;
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
+    const [docs, unread, total] = await Promise.all([
+      NotificationModel.find(listFilter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+      NotificationModel.countDocuments({ ...base, read: false }),
+      NotificationModel.countDocuments(listFilter),
+    ]);
     const items = docs.map((n) => ({
       id: String(n._id),
       audience: n.audience,
@@ -47,7 +55,7 @@ router.get('/api/notifications', async (req, res) => {
         ? new Date((n as { createdAt: Date }).createdAt).toISOString()
         : new Date().toISOString(),
     }));
-    res.json({ items, unread });
+    res.json({ items, unread, total, page, pages: Math.max(1, Math.ceil(total / limit)) });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load notifications' });
   }

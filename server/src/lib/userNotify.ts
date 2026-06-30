@@ -9,6 +9,7 @@
 import type { Server } from 'socket.io';
 import { NotificationModel } from '../models/Notification';
 import { UserModel } from '../models/User';
+import { notifyUserLive } from './live';
 
 // the Notification model's audience enum — coerce anything else (e.g. 'employee') to a safe value
 const AUDIENCE = new Set(['operator', 'supervisor', 'prodManager', 'plantHead', 'superAdmin', 'admin']);
@@ -33,7 +34,7 @@ export async function notifyUser(
       title: opts.title,
       body: opts.body,
     });
-    if (io) io.emit('notify:new', { userId: String(user._id), email });
+    notifyUserLive(io, String(user._id));
   } catch (e) {
     console.warn('⚠️  user notification failed:', (e as Error).message);
   }

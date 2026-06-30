@@ -11,10 +11,12 @@
 import { Router } from 'express';
 import { UserModel } from '../models/User';
 import { UserHistoryModel } from '../models/UserHistory';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireRole, invalidateUserCache } from '../middleware/auth';
 import { sendCredentialsEmail } from '../lib/mailer';
 import { archiveUser } from '../lib/archiveUser';
 import { notifyUser } from '../lib/userNotify';
+import { RoleModel } from '../models/Role';
+import { scopeOf, type ScopeKind } from '@shared/permissions';
 import type { Role } from '@shared/types';
 
 const router = Router();
@@ -25,9 +27,24 @@ const ROLE_LABEL: Record<string, string> = {
   prodManager: 'Production Manager', supervisor: 'Supervisor', operator: 'Operator', employee: 'Employee',
 };
 
-// roles a Super Admin is allowed to assign (admin is merged into superAdmin, so
-// it is no longer offered; cannot mint another superAdmin via the API either)
-const ASSIGNABLE: Role[] = ['plantHead', 'prodManager', 'supervisor', 'operator', 'employee'];
+// Custom roles created in Roles & Permissions map to an EFFECTIVE built-in role by their
+// data scope, so all the existing scope/capability enforcement keeps working unchanged.
+const EFFECTIVE_BY_SCOPE: Record<ScopeKind, Role> = { all: 'plantHead', lines: 'prodManager', machines: 'supervisor', own: 'operator' };
+const BUILTIN_ASSIGNABLE: string[] = ['plantHead', 'prodManager', 'supervisor', 'operator', 'employee'];
+
+// Resolve an assigned role (an admin-created Role-document slug, or a legacy built-in enum)
+// into { effective built-in role, scope, display name } used for storage + enforcement.
+async function resolveAssignedRole(slug: string): Promise<{ effectiveRole: Role; roleSlug: string; roleName: string; scope: ScopeKind } | null> {
+  if (!slug) return null;
+  if (BUILTIN_ASSIGNABLE.includes(slug)) {
+    const r = slug as Role;
+    return { effectiveRole: r, roleSlug: slug, roleName: ROLE_LABEL[slug] || slug, scope: scopeOf(r) };
+  }
+  const doc = (await RoleModel.findOne({ slug }).lean()) as { name?: string; isSystem?: boolean; scope?: ScopeKind } | null;
+  if (!doc || doc.isSystem) return null; // unknown role, or the locked Super Admin (never assignable here)
+  const scope = (doc.scope as ScopeKind) || 'machines';
+  return { effectiveRole: EFFECTIVE_BY_SCOPE[scope], roleSlug: slug, roleName: doc.name || slug, scope };
+}
 
 function toRow(doc: any) {
   return {
@@ -35,6 +52,8 @@ function toRow(doc: any) {
     name: doc.name,
     email: doc.email,
     role: doc.role,
+    roleSlug: doc.roleSlug || null,
+    roleName: doc.roleName || null,
     assignedMachineIds: doc.assignedMachineIds || [],
     assignedLines: doc.assignedLines || [],
     managerId: doc.managerId ? String(doc.managerId) : null,
@@ -68,13 +87,14 @@ router.post('/api/users', async (req, res) => {
     const name = String(b.name || '').trim();
     const email = String(b.email || '').toLowerCase().trim();
     const password = String(b.password || '');
-    const role = b.role as Role;
+    const roleInput = String(b.role || '');
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password || !roleInput) {
       return res.status(400).json({ error: 'name, email, password and role are required' });
     }
-    if (!ASSIGNABLE.includes(role)) {
-      return res.status(400).json({ error: `role must be one of: ${ASSIGNABLE.join(', ')}` });
+    const resolved = await resolveAssignedRole(roleInput);
+    if (!resolved) {
+      return res.status(400).json({ error: 'Pick a valid role — create one in Roles & Permissions first.' });
     }
     if (password.length < 8) {
       return res.status(400).json({ error: 'Temporary password must be at least 8 characters' });
@@ -85,7 +105,9 @@ router.post('/api/users', async (req, res) => {
     const user = new UserModel({
       name,
       email,
-      role,
+      role: resolved.effectiveRole,
+      roleSlug: resolved.roleSlug,
+      roleName: resolved.roleName,
       assignedMachineIds: Array.isArray(b.assignedMachineIds) ? b.assignedMachineIds : [],
       assignedLines: Array.isArray(b.assignedLines) ? b.assignedLines : [],
       managerId: b.managerId || null,
@@ -100,7 +122,7 @@ router.post('/api/users', async (req, res) => {
     const { sent } = await sendCredentialsEmail({
       to: email,
       name,
-      role,
+      role: resolved.effectiveRole,
       tempPassword: password,
     });
 
@@ -128,14 +150,18 @@ router.patch('/api/users/:id', async (req, res) => {
 
     if (b.name !== undefined) user.set('name', String(b.name).trim());
     if (b.role !== undefined) {
-      if (!ASSIGNABLE.includes(b.role)) return res.status(400).json({ error: 'Invalid role' });
-      user.set('role', b.role);
+      const resolved = await resolveAssignedRole(String(b.role));
+      if (!resolved) return res.status(400).json({ error: 'Invalid role' });
+      user.set('role', resolved.effectiveRole);
+      user.set('roleSlug', resolved.roleSlug);
+      user.set('roleName', resolved.roleName);
     }
     if (b.assignedMachineIds !== undefined) user.set('assignedMachineIds', b.assignedMachineIds);
     if (b.assignedLines !== undefined) user.set('assignedLines', b.assignedLines);
     if (b.managerId !== undefined) user.set('managerId', b.managerId || null);
     if (b.isActive !== undefined) user.set('isActive', !!b.isActive);
     await user.save();
+    invalidateUserCache(req.params.id); // role/scope/active changed → drop the auth cache now
 
     // build a human-readable list of what changed, then notify the person
     const changes: string[] = [];
@@ -187,6 +213,7 @@ router.post('/api/users/:id/reset-password', async (req, res) => {
     await (user as any).setPassword(password);
     user.set('mustChangePassword', true);
     await user.save();
+    invalidateUserCache(req.params.id);
 
     const { sent } = await sendCredentialsEmail({
       to: user.get('email') as string,
@@ -214,6 +241,7 @@ router.post('/api/users/:id/suspend', async (req, res) => {
 
     user.set('suspendedUntil', until);
     await user.save();
+    invalidateUserCache(req.params.id); // suspension must take effect immediately
 
     // record the temporary deletion in history
     await archiveUser(user.toObject(), {
@@ -237,6 +265,7 @@ router.post('/api/users/:id/restore', async (req, res) => {
     user.set('suspendedUntil', null);
     user.set('isActive', true);
     await user.save();
+    invalidateUserCache(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to restore user', detail: String(err) });
@@ -259,6 +288,7 @@ router.delete('/api/users/:id', async (req, res) => {
     });
 
     await user.deleteOne();
+    invalidateUserCache(req.params.id); // deleted user must be rejected immediately
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete user', detail: String(err) });

@@ -1,62 +1,10 @@
 // ============================================================
-//  SHARED UI BITS  —  KpiCard, StatusPill, Metric tile
+//  SHARED UI BITS  —  pure helpers kept after the EKC re-skin
+//  (fmtDuration + the theme-aware Metric tile). The legacy styled
+//  KpiCard/StatusPill/BarRow/inputStyle were retired with the
+//  re-skin — use ../components/ekc-ui (StatCard, StatusPill, …) and
+//  the `.input` class instead.
 // ============================================================
-import type { MachineStatus } from '@shared/types';
-
-// ---- colored-top KPI card (like the dashboard summary cards) ----
-export function KpiCard({
-  label, value, sub, accent, onClick,
-}: { label: string; value: React.ReactNode; sub?: string; accent: string; onClick?: () => void }) {
-  return (
-    <div
-      className={`card${onClick ? ' hoverable' : ''}`}
-      onClick={onClick}
-      style={{ padding: 0, overflow: 'hidden', animation: 'fadeUp .4s ease', cursor: onClick ? 'pointer' : undefined }}
-    >
-      <div style={{ height: 4, background: accent }} />
-      <div style={{ padding: '16px 18px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--text-faint)' }}>
-            {label.toUpperCase()}
-          </div>
-          {onClick && <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>↗</span>}
-        </div>
-        <div style={{ fontSize: 28, fontWeight: 800, color: accent, margin: '6px 0 2px' }}>{value}</div>
-        {sub && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sub}</div>}
-      </div>
-    </div>
-  );
-}
-
-// ---- status pill ----
-const STATUS_LABEL: Record<MachineStatus, string> = {
-  running: 'Running', idle: 'Idle', stopped: 'Stopped', disconnected: 'Disconnected',
-};
-export function StatusPill({ status }: { status: MachineStatus }) {
-  return (
-    <span className={`pill ${status}`}>
-      <span className="dot" /> {STATUS_LABEL[status]}
-    </span>
-  );
-}
-
-// ---- a labeled horizontal bar (dept-wise charts) ----
-export function BarRow({
-  label, value, max, suffix, color = 'var(--brand)', labelWidth = 130,
-}: { label: string; value: number; max: number; suffix?: string; color?: string; labelWidth?: number }) {
-  const pct = max > 0 ? Math.max(2, Math.min(100, (value / max) * 100)) : 0;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-      <div style={{ width: labelWidth, fontSize: 13, color: 'var(--text-muted)' }}>{label}</div>
-      <div style={{ flex: 1, height: 8, background: 'var(--surface-2)', borderRadius: 99 }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99 }} />
-      </div>
-      <div className="mono" style={{ width: 64, textAlign: 'right', fontSize: 13, fontWeight: 700 }}>
-        {value.toLocaleString()}{suffix ? <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 2 }}>{suffix}</span> : null}
-      </div>
-    </div>
-  );
-}
 
 // ---- seconds → "2h 14m" / "—" ----
 export function fmtDuration(sec: number): string {
@@ -68,24 +16,26 @@ export function fmtDuration(sec: number): string {
   return `${sec}s`;
 }
 
-// shared input/select style used by page filter bars
-export const inputStyle: React.CSSProperties = {
-  border: '1px solid var(--border-strong)', borderRadius: 10, padding: '9px 12px',
-  fontSize: 14, background: 'var(--surface)', color: 'var(--text)', outline: 'none',
-};
-
 // ---- a single metric tile inside a machine card ----
+// Tinted box + an EXPLICIT value colour, so the number stays readable on the
+// tint in both light and dark themes (the old version inherited its colour and
+// vanished on the light warm/cool tiles in dark mode).
 export function Metric({
   label, value, unit, tone = 'plain',
 }: { label: string; value: React.ReactNode; unit?: string; tone?: 'plain' | 'warm' | 'cool' | 'bad' }) {
-  const bg = tone === 'warm' ? '#fdeaea' : tone === 'cool' ? '#eaf3fb' : tone === 'bad' ? '#fdeaea' : 'var(--surface-2)';
+  const box =
+    tone === 'warm' ? 'bg-idle/10' :
+    tone === 'cool' ? 'bg-[#0EA5E9]/10' :
+    tone === 'bad'  ? 'bg-stopped/10' : 'bg-raised';
+  const val =
+    tone === 'warm' ? 'text-idle' :
+    tone === 'cool' ? 'text-[#0EA5E9]' :
+    tone === 'bad'  ? 'text-stopped' : 'text-primary';
   return (
-    <div style={{ background: bg, borderRadius: 10, padding: '10px 12px' }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-faint)' }}>
-        {label.toUpperCase()}
-      </div>
-      <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }} className="mono">
-        {value}{unit && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 3 }}>{unit}</span>}
+    <div className={`${box} rounded-[10px] px-3 py-2.5`}>
+      <div className="text-[10px] font-bold uppercase tracking-wide text-steel">{label}</div>
+      <div className={`data text-base font-bold mt-0.5 ${val}`}>
+        {value}{unit && <span className="text-[11px] font-normal text-steel/70 ml-0.5">{unit}</span>}
       </div>
     </div>
   );

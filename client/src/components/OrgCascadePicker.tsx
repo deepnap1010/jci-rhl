@@ -1,5 +1,7 @@
+// client/src/components/OrgCascadePicker.tsx
 // ============================================================
 //  ORG CASCADE PICKER  —  drill down YOUR org to pick an assignee
+//  (EKC re-skin — visual layer only, logic unchanged)
 //
 //  Walks the viewer's subtree one level at a time: the first
 //  dropdown lists your direct reports; picking one reveals their
@@ -20,6 +22,9 @@ export interface CascadeSelection {
   machineCode: string | null;
   path: { id: string; name: string; role: string }[]; // every level selected, top→deepest
 }
+
+const SEL = 'w-full bg-base border border-line rounded-lg px-3 py-2.5 text-sm text-primary outline-none focus:border-accent';
+const LBL = 'text-xs font-bold text-steel';
 
 export default function OrgCascadePicker({ onChange }: { onChange: (sel: CascadeSelection | null) => void }) {
   const { data } = useOrg();
@@ -69,17 +74,17 @@ export default function OrgCascadePicker({ onChange }: { onChange: (sel: Cascade
   }
 
   if (topLevel.length === 0) {
-    return <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>You have no team members yet — set people's manager in the Org Chart.</div>;
+    return <div className="text-[13px] text-steel/60">You have no team members yet — set people's manager in the Org Chart.</div>;
   }
 
   const label = (role: string) => ROLE_LABELS[role as Role] ?? role;
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div className="grid gap-2.5">
       {levels.map((lvl, i) => (
-        <label key={i} style={{ display: 'grid', gap: 4 }}>
-          <span style={lblStyle}>{i === 0 ? 'Assign to' : `↳ ${label(lvl.options[0].role)} (optional)`}</span>
-          <select value={lvl.selected} onChange={(e) => pick(i, e.target.value)} style={selStyle}>
+        <label key={i} className="grid gap-1">
+          <span className={LBL}>{i === 0 ? 'Assign to' : `↳ ${label(lvl.options[0].role)} (optional)`}</span>
+          <select value={lvl.selected} onChange={(e) => pick(i, e.target.value)} className={SEL}>
             <option value="">{i === 0 ? '— select —' : '— stop here —'}</option>
             {lvl.options.map((o) => (
               <option key={o.id} value={o.id}>{o.name} — {label(o.role)}</option>
@@ -88,9 +93,9 @@ export default function OrgCascadePicker({ onChange }: { onChange: (sel: Cascade
         </label>
       ))}
       {machines.length > 0 && (
-        <label style={{ display: 'grid', gap: 4 }}>
-          <span style={lblStyle}>↳ Machine (optional)</span>
-          <select value={machineCode} onChange={(e) => pickMachine(e.target.value)} style={selStyle}>
+        <label className="grid gap-1">
+          <span className={LBL}>↳ Machine (optional)</span>
+          <select value={machineCode} onChange={(e) => pickMachine(e.target.value)} className={SEL}>
             <option value="">— any —</option>
             {machines.map((m) => <option key={m.code} value={m.code}>{m.code} · {m.department}</option>)}
           </select>
@@ -99,6 +104,3 @@ export default function OrgCascadePicker({ onChange }: { onChange: (sel: Cascade
     </div>
   );
 }
-
-const lblStyle: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' };
-const selStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', border: '1px solid var(--border-strong)', borderRadius: 10, fontSize: 14, background: 'var(--surface)', fontFamily: 'inherit' };

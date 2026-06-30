@@ -217,6 +217,7 @@ export interface RoleRow {
   slug: string;
   description: string;
   isSystem: boolean;
+  scope?: string; // data scope this role grants: all | lines | machines | own
   permissions: Record<string, string[]>;
 }
 
@@ -433,8 +434,12 @@ export function useDowntimeReports() {
     load(true);
   }, [load]);
   const resolve = useCallback(async (id: string) => {
-    await api.post(`/api/downtime-reports/${id}/resolve`);
-    load(true);
+    // optimistic: clear every open report for this machine so the banner vanishes at once
+    setReports((prev) => {
+      const mid = prev.find((x) => x._id === id)?.machineId;
+      return mid ? prev.map((x) => (x.machineId === mid ? { ...x, status: 'resolved' } : x)) : prev;
+    });
+    try { await api.post(`/api/downtime-reports/${id}/resolve`); } finally { load(true); }
   }, [load]);
 
   return { reports, reload: () => load(true), report, acknowledge, resolve };

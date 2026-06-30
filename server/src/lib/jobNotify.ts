@@ -9,6 +9,7 @@ import type { Server } from 'socket.io';
 import { NotificationModel } from '../models/Notification';
 import { UserModel } from '../models/User';
 import { sendJobAssignmentEmail } from './mailer';
+import { notifyUserLive } from './live';
 
 export interface JobLikeForNotify {
   _id?: unknown;
@@ -64,7 +65,7 @@ export async function notifyJobAssignees(
         title,
         body,
       });
-      if (io) io.emit('notify:new', { userId: String(user._id), email });
+      notifyUserLive(io, String(user._id));
 
       if (email) {
         sendJobAssignmentEmail({

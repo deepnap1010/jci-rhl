@@ -1,11 +1,13 @@
 // ============================================================
-//  CHANGE PASSWORD
+//  CHANGE PASSWORD  —  EKC re-skin (Tailwind + theme tokens)
 //  Shown right after a freshly-created user logs in with their
 //  temporary password (mustChangePassword = true). Also reachable
 //  any time a user wants to change their own password.
+//  Visual layer only — all auth hooks, state, validation, error
+//  handling and redirect behaviour are unchanged from the original.
 // ============================================================
 import { useState } from 'react';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, Lock, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/auth';
 
 export default function ChangePassword({ firstLogin = false }: { firstLogin?: boolean }) {
@@ -15,6 +17,7 @@ export default function ChangePassword({ firstLogin = false }: { firstLogin?: bo
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,50 +36,99 @@ export default function ChangePassword({ firstLogin = false }: { firstLogin?: bo
   }
 
   return (
-    <div style={S.wrap}>
-      <form onSubmit={onSubmit} style={S.card}>
-        <div style={S.icon}><KeyRound size={22} color="#fff" /></div>
-        <h2 style={S.title}>{firstLogin ? 'Set your password' : 'Change password'}</h2>
+    <div className="min-h-screen grid place-items-center bg-base px-5">
+      <form onSubmit={onSubmit} className="panel w-full max-w-[400px] p-7 flex flex-col">
+        {/* brand */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-accent grid place-items-center shrink-0">
+            <KeyRound size={20} className="text-white" />
+          </div>
+          <div>
+            <div className="font-bold text-primary leading-tight">JCI SmartFactory</div>
+            <div className="text-xs text-steel">Account security</div>
+          </div>
+        </div>
+
+        <h2 className="text-lg font-bold text-primary mb-1">
+          {firstLogin ? 'Set your password' : 'Change password'}
+        </h2>
         {firstLogin && (
-          <p style={S.sub}>
+          <p className="text-sm text-steel mb-5 leading-relaxed">
             Welcome! For security, please replace the temporary password you were emailed.
           </p>
         )}
+        {!firstLogin && <div className="mb-5" />}
 
-        <label style={S.label}>{firstLogin ? 'Temporary password' : 'Current password'}</label>
-        <input style={S.input} type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoFocus />
+        <label className="label mb-1.5">{firstLogin ? 'Temporary password' : 'Current password'}</label>
+        <div className="relative mb-4">
+          <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel/60 pointer-events-none" />
+          <input
+            className="input pl-9 pr-10"
+            type={show ? 'text' : 'password'}
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            required
+            autoFocus
+          />
+          <button
+            type="button"
+            onClick={() => setShow((v) => !v)}
+            aria-label={show ? 'Hide passwords' : 'Show passwords'}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-steel/60 hover:text-primary transition-colors"
+          >
+            {show ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
 
-        <label style={S.label}>New password</label>
-        <input style={S.input} type="password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="At least 8 characters" required />
+        <label className="label mb-1.5">New password</label>
+        <div className="relative mb-1.5">
+          <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel/60 pointer-events-none" />
+          <input
+            className="input pl-9 pr-10"
+            type={show ? 'text' : 'password'}
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            placeholder="At least 8 characters"
+            required
+          />
+        </div>
+        <p className="text-xs text-steel mb-4">Use at least 8 characters.</p>
 
-        <label style={S.label}>Confirm new password</label>
-        <input style={S.input} type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+        <label className="label mb-1.5">Confirm new password</label>
+        <div className="relative mb-4">
+          <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel/60 pointer-events-none" />
+          <input
+            className="input pl-9 pr-10"
+            type={show ? 'text' : 'password'}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+          />
+        </div>
 
-        {error && <div style={S.error}>{error}</div>}
+        {error && (
+          <div className="rounded-lg border border-stopped/30 bg-stopped/10 text-stopped px-3.5 py-2.5 text-sm flex items-center gap-2 mb-4">
+            <AlertTriangle size={15} className="shrink-0" />
+            {error}
+          </div>
+        )}
 
-        <button style={{ ...S.btn, opacity: busy ? 0.7 : 1 }} disabled={busy} type="submit">
+        <button
+          className="w-full bg-accent text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-60"
+          disabled={busy}
+          type="submit"
+        >
           {busy ? 'Saving…' : 'Save password'}
         </button>
 
-        <button type="button" onClick={logout} style={S.link}>Sign out</button>
+        <button
+          type="button"
+          onClick={logout}
+          className="text-sm text-steel hover:text-primary transition-colors mt-4 mx-auto"
+        >
+          Sign out
+        </button>
       </form>
     </div>
   );
 }
-
-const S: Record<string, React.CSSProperties> = {
-  wrap: { minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'var(--bg, #f4f6fb)', padding: 20 },
-  card: {
-    width: '100%', maxWidth: 400, background: 'var(--surface, #fff)', borderRadius: 16,
-    padding: 28, boxShadow: '0 10px 40px rgba(0,0,0,.08)', border: '1px solid var(--border, #e5e7eb)',
-    display: 'flex', flexDirection: 'column',
-  },
-  icon: { width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg,#3b5bfd,#6d83ff)', display: 'grid', placeItems: 'center', marginBottom: 14 },
-  title: { fontSize: 20, fontWeight: 800, marginBottom: 4 },
-  sub: { fontSize: 13, color: '#6b7280', marginBottom: 18, lineHeight: 1.5 },
-  label: { fontSize: 12, fontWeight: 700, color: '#6b7280', marginBottom: 6, marginTop: 6 },
-  input: { border: '1px solid #d1d5db', borderRadius: 10, padding: '10px 12px', fontSize: 14, marginBottom: 10, outline: 'none', background: '#fff' },
-  btn: { background: 'var(--brand, #3b5bfd)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 14px', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginTop: 8 },
-  link: { background: 'none', border: 'none', color: '#6b7280', fontSize: 13, marginTop: 14, cursor: 'pointer' },
-  error: { background: '#fdeaea', color: '#b91c1c', borderRadius: 8, padding: '9px 12px', fontSize: 13, marginBottom: 12 },
-};

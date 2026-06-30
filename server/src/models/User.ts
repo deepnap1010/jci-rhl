@@ -22,7 +22,9 @@ const UserSchema = new Schema(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ROLES, required: true },
+    role: { type: String, enum: ROLES, required: true }, // EFFECTIVE built-in role (drives enforcement)
+    roleSlug: { type: String, default: null }, // the admin-created role assigned (display + linkage)
+    roleName: { type: String, default: null }, // its display name
 
     // scoping (mirrors the shared User type used by scopeFilter)
     assignedMachineIds: { type: [String], default: [] }, // machine codes/ids

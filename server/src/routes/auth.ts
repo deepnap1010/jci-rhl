@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { UserModel } from '../models/User';
 import { signToken } from '../lib/token';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, invalidateUserCache } from '../middleware/auth';
 import type { Role } from '@shared/types';
 
 const router = Router();
@@ -19,6 +19,8 @@ function toClientUser(doc: any) {
     name: doc.name,
     email: doc.email,
     role: doc.role as Role,
+    roleSlug: doc.roleSlug || null,
+    roleName: doc.roleName || null,
     assignedMachineIds: doc.assignedMachineIds || [],
     assignedLines: doc.assignedLines || [],
     mustChangePassword: !!doc.mustChangePassword,
@@ -53,6 +55,7 @@ router.post('/api/auth/login', async (req, res) => {
 
     user.set('lastLoginAt', new Date());
     await user.save();
+    invalidateUserCache(String(user._id));
 
     const token = signToken({ sub: String(user._id), role: user.get('role') as Role });
     res.json({ token, user: toClientUser(user) });
@@ -84,6 +87,7 @@ router.post('/api/auth/change-password', requireAuth, async (req, res) => {
     await (user as any).setPassword(newPassword);
     user.set('mustChangePassword', false);
     await user.save();
+    invalidateUserCache(String(user._id));
 
     res.json({ ok: true });
   } catch (err) {
