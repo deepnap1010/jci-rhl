@@ -25,19 +25,25 @@ const IST_OFFSET = 5.5 * 3600 * 1000; // factory-local day boundary
 
 // Window total = SUM of per-day deltas. A single (end−start) delta over a multi-day range is wrong
 // because counters reset several times inside the window (so a 6-day range came out < one day).
-// Per day we take the last reading and diff it against the prior day's last (reset-aware: a counter
+// Per day we take the day's MAX counter and diff it against the prior day's (reset-aware: a counter
 // that dropped below the previous value reset, so that day's value is the post-reset reading).
-const cv = (input: unknown) => ({ $convert: { input, to: 'double', onError: 0, onNull: 0 } });
-const lastOf = (input: unknown) => ({ $top: { sortBy: { serverTs: -1 }, output: cv(input) } });
+//
+// MAX — not "the last reading" — because machines send PARTIAL packets (a reading may omit
+// `production` etc.). With last-reading extraction the counter flapped between the real value and
+// 0/an alias whenever the newest packet lacked the field, so "Production Today" visibly jumped
+// (e.g. 25,000 → 20,000 → back). For a cumulative counter max == latest-known value; packets
+// without the field are ignored ($max skips nulls) and the total can never go DOWN.
+const cvn = (input: unknown) => ({ $convert: { input, to: 'double', onError: null, onNull: null } });
+const maxOf = (input: unknown) => ({ $max: cvn(input) });
 const COUNTERS = {
   prod: { $ifNull: ['$data.production', '$data.fabricLength'] },
   run: '$data.runningSeconds', idle: '$data.idleSeconds', stop: '$data.stoppedSeconds',
 };
-type DayRow = { _id: { m: string; d: Date }; prod: number; run: number; idle: number; stop: number };
-type BaseRow = { _id: string; prod: number; run: number; idle: number; stop: number };
+type DayRow = { _id: { m: string; d: Date }; prod: number | null; run: number | null; idle: number | null; stop: number | null };
+type BaseRow = { _id: string; prod: number | null; run: number | null; idle: number | null; stop: number | null };
 
 export async function windowMetrics(ids: string[], from: Date, to: Date): Promise<Map<string, Cum>> {
-  const project = { prod: lastOf(COUNTERS.prod), run: lastOf(COUNTERS.run), idle: lastOf(COUNTERS.idle), stop: lastOf(COUNTERS.stop) };
+  const project = { prod: maxOf(COUNTERS.prod), run: maxOf(COUNTERS.run), idle: maxOf(COUNTERS.idle), stop: maxOf(COUNTERS.stop) };
   // last reading per (machine, IST day) within the window + last reading just before the window
   const [dayRows, baseRows] = await Promise.all([
     TelemetryModel.aggregate([

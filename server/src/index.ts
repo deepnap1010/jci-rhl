@@ -19,6 +19,7 @@ import usersRoute from './routes/users';
 import machinesRoute from './routes/machines';
 import dashboardRoute from './routes/dashboard';
 import ingestRoute from './routes/ingest';
+import sapRoute from './routes/sap';
 import jobsRoute from './routes/jobs';
 import employeesRoute from './routes/employees';
 import shiftsRoute from './routes/shifts';
@@ -77,6 +78,10 @@ app.get('/api/health', (_req, res) => {
 // Mounted BEFORE requireAuth: machines don't have roles/scoping.
 // This is the URL you give to the company.
 app.use(ingestRoute);
+
+// ─── SAP ingest (partner systems, e.g. Minda — API-key auth) ──
+// Public push endpoint for SAP data; authenticated by SAP_API_KEY, not a user login.
+app.use(sapRoute);
 
 // ─── Health check (public) ──────────────────────────────────
 app.get('/', (_req, res) => res.send('SmartFactory API running'));
