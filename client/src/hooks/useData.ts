@@ -1,3 +1,8 @@
+// ════════════════════════════════════════════════════════════════
+//  📁 FILE PATH : smartfactory/client/src/hooks/useData.ts
+//  ⚙️  ACTION    : REPLACE existing file (full overwrite)
+// ════════════════════════════════════════════════════════════════
+
 // ============================================================
 //  DATA HOOKS
 //  Fetch scoped data; refetch when the role changes and when
@@ -390,8 +395,13 @@ export interface DowntimeReportRow {
   machineCode: string;
   department: string;
   reason: string;
+  reasons?: string[];          // checkbox selections (auto-prompt / new manual reports)
+  otherText?: string;          // free text when "Other" is checked
+  source?: 'manual' | 'auto';  // auto = raised by the 2-min stop detector
   note: string;
-  status: 'open' | 'acknowledged' | 'escalated' | 'resolved';
+  status: 'awaitingReason' | 'open' | 'acknowledged' | 'escalated' | 'resolved';
+  promptedAt?: string | null;
+  reasonSubmittedAt?: string | null;
   operatorName: string;
   supervisorId: string | null;
   plantHeadId: string | null;

@@ -1,7 +1,13 @@
+// ════════════════════════════════════════════════════════════════
+//  📁 FILE PATH : smartfactory/server/src/index.ts
+//  ⚙️  ACTION    : REPLACE existing file (full overwrite)
+// ════════════════════════════════════════════════════════════════
+
 // ============================================================
 //  SERVER ENTRY POINT
 //  Wires together: DB connection, middleware, routes, Socket.io
-//  (escalation timers configurable via ESCALATE_*_SEC in .env)
+//  (escalation timers configurable via ESCALATE_*_SEC in .env;
+//   auto reason-prompt threshold via AUTO_PROMPT_SEC)
 // ============================================================
 import 'dotenv/config';
 import express from 'express';
@@ -35,6 +41,7 @@ import tasksRoute from './routes/tasks';
 import orgRoute from './routes/org';
 import aiRoute from './routes/ai';
 import { sweepEscalations } from './lib/escalation';
+import { sweepAutoPrompts } from './lib/autoPrompt';
 import { attachLive, setupRedisAdapter, nudge } from './lib/live';
 import { departmentFor } from './lib/derive';
 
@@ -160,8 +167,12 @@ connectDB()
         console.warn('⚠️  suspension sweep failed:', (e as Error).message);
       }
     };
-    // Idle-report escalation: notify supervisor after N min, plant head after M min.
+    // Idle-report escalation: walks each report up the management chain
+    // (supervisor → prod manager → plant head → super admin) until acked.
     const runEscalations = () => sweepEscalations(io).catch((e) => console.warn('⚠️  escalation sweep failed:', (e as Error).message));
+    // Auto reason-prompt: machine stopped/idle > AUTO_PROMPT_SEC → pop the
+    // reason screen on the assigned operator's dashboard.
+    const runAutoPrompts = () => sweepAutoPrompts(io).catch((e) => console.warn('⚠️  auto-prompt sweep failed:', (e as Error).message));
 
     // These sweeps must run on exactly ONE instance. In a multi-instance deployment set
     // RUN_BACKGROUND_JOBS=false on every instance except one, or they double-fire.
@@ -170,6 +181,8 @@ connectDB()
       setInterval(sweepSuspensions, 60 * 1000); // every minute
       runEscalations();
       setInterval(runEscalations, 30 * 1000);   // every 30s — fine for minute thresholds
+      runAutoPrompts();
+      setInterval(runAutoPrompts, 30 * 1000);   // every 30s — detects the 2-min stop threshold
     } else {
       console.log('⏭️  Background sweeps disabled here (RUN_BACKGROUND_JOBS=false)');
     }

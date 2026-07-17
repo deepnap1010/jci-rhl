@@ -1,3 +1,8 @@
+// ════════════════════════════════════════════════════════════════
+//  📁 FILE PATH : smartfactory/client/src/App.tsx
+//  ⚙️  ACTION    : REPLACE existing file (full overwrite)
+// ════════════════════════════════════════════════════════════════
+
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './components/Toast';
@@ -5,6 +10,7 @@ import { useAuth } from './context/auth';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import ErrorBoundary from './components/ErrorBoundary';
+import DowntimePrompt from './components/DowntimePrompt';
 import { NAV, ROLE_NAV } from './config/nav';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -76,6 +82,9 @@ function Shell() {
           </Routes>
         </ErrorBoundary>
       </main>
+      {/* Auto reason-prompt: pops on the operator's screen when a machine has
+          been stopped/idle for 2+ minutes, whatever page they're on. */}
+      <DowntimePrompt />
     </div>
   );
 }

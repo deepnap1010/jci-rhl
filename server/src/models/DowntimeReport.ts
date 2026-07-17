@@ -1,15 +1,26 @@
+// ════════════════════════════════════════════════════════════════
+//  📁 FILE PATH : smartfactory/server/src/models/DowntimeReport.ts
+//  ⚙️  ACTION    : REPLACE existing file (full overwrite)
+// ════════════════════════════════════════════════════════════════
+
 // ============================================================
-//  DOWNTIME REPORT  —  operator-reported machine idle/stoppage
-//  with a reason, plus a two-step escalation lifecycle:
+//  DOWNTIME REPORT  —  machine idle/stoppage with reason(s) and
+//  a full-chain escalation lifecycle:
 //
-//    open ──(5 min, unhandled)──► supervisor notified
-//         ──(supervisor Acks)───► acknowledged ✓
-//         ──(30 min, no ack)────► escalated to plant head
-//         ──(machine resolved)──► resolved
+//    (auto-detected ≥ AUTO_PROMPT_SEC stopped/idle)
+//    awaitingReason ──(operator submits checkboxes)──► open
+//                   ──(no reason in grace period)────► supervisor
+//                                                      alerted anyway
+//    open ──(immediately)──────► supervisor notified (with reasons)
+//         ──(supervisor Acks)──► acknowledged ✓ (chain stops)
+//         ──(ESCALATE_STEP_SEC, no ack)► next manager up the chain,
+//            repeating every step until the TOP of the org chart
+//         ──(machine resolved)─► resolved
 //
 //  Recipients are snapshotted from the operator's org chain at
-//  report time (operator → supervisorId → plantHeadId) so the
-//  escalation is deterministic even if managers change later.
+//  report time (operator → supervisor → prod manager → plant head
+//  → super admin) so escalation is deterministic even if managers
+//  change later.
 // ============================================================
 import { Schema, model } from 'mongoose';
 
@@ -18,12 +29,22 @@ const DowntimeReportSchema = new Schema(
     machineId: { type: String, required: true, index: true },
     machineCode: { type: String, default: '' },
     department: { type: String, default: '' },
-    reason: { type: String, required: true },
+
+    // ── reasons ──
+    // Multi-select checkboxes (from shared/downtimeReasons.ts). `reason` keeps
+    // the joined display string so every existing consumer keeps working.
+    reason: { type: String, default: '' },
+    reasons: { type: [String], default: [] },
+    otherText: { type: String, default: '' }, // filled when "Other" is checked
     note: { type: String, default: '' },
+
+    // 'manual' = operator pressed "Report idle"; 'auto' = the 2-minute
+    // stop/idle detector created it and popped the reason prompt.
+    source: { type: String, enum: ['manual', 'auto'], default: 'manual' },
 
     status: {
       type: String,
-      enum: ['open', 'acknowledged', 'escalated', 'resolved'],
+      enum: ['awaitingReason', 'open', 'acknowledged', 'escalated', 'resolved'],
       default: 'open',
       index: true,
     },
@@ -53,7 +74,9 @@ const DowntimeReportSchema = new Schema(
     escalatedToName: { type: String, default: null }, // last person escalated to (for display)
 
     // lifecycle timestamps
-    startedAt: { type: Date, default: () => new Date() },
+    startedAt: { type: Date, default: () => new Date() }, // when the machine actually went down
+    promptedAt: { type: Date, default: null },            // when the operator popup was raised (auto)
+    reasonSubmittedAt: { type: Date, default: null },     // when the operator submitted the checkboxes
     supervisorNotifiedAt: { type: Date, default: null },
     acknowledgedAt: { type: Date, default: null },
     acknowledgedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
